@@ -1,0 +1,53 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  check-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v45
+        with:
+          files: |
+            **/*.py  # Проверяем все Python-файлы в репозитории
+            !**/tests/**  # Исключаем тесты
+
+      - name: Run code quality check
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
+          API_URL: "https://relationship-phoenix-legends-len.trycloudflare.com"  # Замените на URL вашего сервера
+        run: |
+          # Формируем JSON с файлами
+          JSON_PAYLOAD=$(jq -n --arg files "$CHANGED_FILES" '{"files": ($files | split(" "))}')
+          
+          # Отправляем запрос на удалённый FastAPI
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $API_TOKEN" \
+            -d "$JSON_PAYLOAD" \
+            "$API_URL/check-quality")
+          
+          # Выводим ответ для логов
+          echo "Response: $RESPONSE"
+          
+          # Проверяем статус
+          if echo "$RESPONSE" | jq -e '.status == "success"' > /dev/null; then
+            echo "Code quality check passed"
+            exit 0
+          else
+            echo "Code quality check failed"
+            echo "Details: $(echo "$RESPONSE" | jq -r '.details // .message')"
+            exit 1
+          fi
