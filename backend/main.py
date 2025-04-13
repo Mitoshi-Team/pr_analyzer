@@ -1,9 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 import os
+import sys
 
 app = FastAPI(root_path="/api")
 
@@ -37,6 +38,19 @@ async_session = sessionmaker(
 @app.get("/")
 async def read_root():
     return {"message": "Hello from FastAPI in Docker!"}
+
+@app.post("/check-quality")
+async def check_quality(request: Request):
+    data = await request.json()
+    files = data.get("files", [])
+    
+    # Временно всегда возвращаем запрет
+    return {
+        "status": "failed",
+        "message": "PR заблокирован",
+        "details": f"Проверены файлы: {', '.join(files)}",
+        "result": 1
+    }
 
 @app.get("/test-db")
 async def test_db():

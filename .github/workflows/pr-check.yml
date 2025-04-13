@@ -19,35 +19,39 @@ jobs:
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v45
-        with:
-          files: |
-            **/*.py  # Проверяем все Python-файлы в репозитории
-            !**/tests/**  # Исключаем тесты
+
+      - name: Debug changed files
+        run: |
+          echo "Измененные файлы: ${{ steps.changed-files.outputs.all_changed_files }}"
 
       - name: Run code quality check
         env:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
-          API_URL: "https://relationship-phoenix-legends-len.trycloudflare.com"  # Замените на URL вашего сервера
+          API_URL: "https://arrivals-worker-harvest-death.trycloudflare.com/check-quality"
         run: |
-          # Формируем JSON с файлами
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "Изменения в файлах не обнаружены"
+            exit 0
+          fi
+
+          echo "Отправляем файлы на проверку: $CHANGED_FILES"
+          
           JSON_PAYLOAD=$(jq -n --arg files "$CHANGED_FILES" '{"files": ($files | split(" "))}')
           
-          # Отправляем запрос на удалённый FastAPI
+          echo "Подготовленные данные: $JSON_PAYLOAD"
+          
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $API_TOKEN" \
             -d "$JSON_PAYLOAD" \
-            "$API_URL/check-quality")
+            "$API_URL")
           
-          # Выводим ответ для логов
-          echo "Response: $RESPONSE"
+          echo "Ответ API: $RESPONSE"
           
-          # Проверяем статус
           if echo "$RESPONSE" | jq -e '.status == "success"' > /dev/null; then
-            echo "Code quality check passed"
+            echo "Проверка пройдена успешно"
             exit 0
           else
-            echo "Code quality check failed"
-            echo "Details: $(echo "$RESPONSE" | jq -r '.details // .message')"
+            echo "Проверка не пройдена"
+            echo "Детали: $(echo "$RESPONSE" | jq -r '.details // .message')"
             exit 1
           fi
