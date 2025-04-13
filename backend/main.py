@@ -1,11 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 import os
+import sys
 
-app = FastAPI()
+app = FastAPI(root_path="/api")
 
 # Настройка CORS для Vue.js
 app.add_middleware(
@@ -21,7 +22,7 @@ DB_HOST = os.getenv("DB_HOST", "db")
 DB_NAME = os.getenv("DB_NAME", "alphadb")
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASS = os.getenv("DB_PASS", "06087083")
-DB_PORT = os.getenv("DB_PORT", "5432")
+DB_PORT = os.getenv("DB_PORT", "5433")
 
 # Строка подключения для asyncpg
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -38,6 +39,19 @@ async_session = sessionmaker(
 async def read_root():
     return {"message": "Hello from FastAPI in Docker!"}
 
+@app.post("/check-quality")
+async def check_quality(request: Request):
+    data = await request.json()
+    files = data.get("files", [])
+    
+    # Временно всегда возвращаем запрет
+    return {
+        "status": "failed",
+        "message": "PR заблокирован",
+        "details": f"Проверены файлы: {', '.join(files)}",
+        "result": 1
+    }
+
 @app.get("/test-db")
 async def test_db():
     try:
@@ -48,6 +62,22 @@ async def test_db():
         return {"db_status": "Connected", "result": row[0] if row else None}
     except Exception as e:
         return {"db_status": "Error", "error": str(e)}
+
+@app.get("/tables")
+async def get_tables():
+    try:
+        async with async_session() as session:
+            # SQL запрос для получения списка всех таблиц
+            query = text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+            """)
+            result = await session.execute(query)
+            tables = [row[0] for row in result.fetchall()]
+            return {"tables": tables}
+    except Exception as e:
+        return {"error": str(e)}
 
 # Очистка при завершении работы
 @app.on_event("shutdown")
