@@ -55,17 +55,14 @@ jobs:
             exit 0
           fi
 
-          # Создаем JSON с детальной информацией о файлах
           JSON_PAYLOAD=$(jq -n '{"files": []}')
           
           for file in $CHANGED_FILES; do
             # Получаем содержимое файла в base64
             CONTENT=$(base64 -w 0 "$file" 2>/dev/null || echo "")
-            
-            # Получаем информацию о последнем коммите
+
             COMMIT_INFO=$(git log -1 --format='{"hash":"%h","author":"%an","date":"%ad","message":"%s"}' -- "$file")
             
-            # Добавляем информацию о файле в JSON
             JSON_PAYLOAD=$(echo $JSON_PAYLOAD | jq --arg file "$file" \
                                                  --arg content "$CONTENT" \
                                                  --argjson commit "$COMMIT_INFO" \
