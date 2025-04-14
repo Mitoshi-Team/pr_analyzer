@@ -1,179 +1,24 @@
-# name: PR Check
-
-# on:
-#   pull_request:
-#     branches:
-#       - main
-#       - develop
-#       - 'releases/**'
-#     types:
-#       - opened
-#       - synchronize
-#       - reopened
-#   merge_group:
-#     branches:
-#       - main
-#       - develop
-#       - 'releases/**'
-
-# jobs:
-#   check-pr:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
-#         with:
-#           fetch-depth: 0
-
-#       - name: Get changed files
-#         id: changed-files
-#         uses: tj-actions/changed-files@v45
-
-#       - name: Get file details
-#         run: |
-#           echo "Детальная информация об измененных файлах:"
-#           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-#             echo "Файл: $file"
-#             echo "Содержимое:"
-#             cat "$file" || echo "Не удалось прочитать файл"
-#             echo "Последнее изменение:"
-#             git log -1 --format="%h | %an | %ad | %s" -- "$file"
-#             echo "----------------------------------------"
-#           done
-
-#       - name: Debug changed files
-#         run: |
-#           echo "Измененные файлы: ${{ steps.changed-files.outputs.all_changed_files }}"
-
-#       - name: Run code quality check
-#         env:
-#           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
-#           API_URL: "http://backend:8000/check-quality"
-#         run: |
-#           if [ -z "$CHANGED_FILES" ]; then
-#             echo "Изменения в файлах не обнаружены"
-#             exit 0
-#           fi
-
-#           JSON_PAYLOAD=$(jq -n '{"files": []}')
-          
-#           for file in $CHANGED_FILES; do
-#             # Получаем содержимое файла в base64
-#             CONTENT=$(base64 -w 0 "$file" 2>/dev/null || echo "")
-
-#             COMMIT_INFO=$(git log -1 --format='{"hash":"%h","author":"%an","date":"%ad","message":"%s"}' -- "$file")
-            
-#             JSON_PAYLOAD=$(echo $JSON_PAYLOAD | jq --arg file "$file" \
-#                                                  --arg content "$CONTENT" \
-#                                                  --argjson commit "$COMMIT_INFO" \
-#               '.files += [{
-#                 "filename": $file,
-#                 "content": $content,
-#                 "commit": $commit
-#               }]')
-#           done
-
-#           echo "Подготовленные данные:"
-#           echo "$JSON_PAYLOAD" | jq '.'
-
-#           RESPONSE=$(curl -s -X POST \
-#             -H "Content-Type: application/json" \
-#             -d "$JSON_PAYLOAD" \
-#             "$API_URL")
-
-#           echo "Ответ API: $RESPONSE"
-
-#           if echo "$RESPONSE" | jq -e '.status == "success"' > /dev/null; then
-#             echo "Проверка пройдена успешно"
-#             exit 0
-#           else
-#             echo "Проверка не пройдена"
-#             echo "Детали: $(echo "$RESPONSE" | jq -r '.details // .message')"
-#             exit 1
-#           fi
-
 name: PR Check
 
 on:
   pull_request:
-    branches: [main, develop, 'releases/**']
-    types: [opened, synchronize, reopened]
-  merge_group:
-    branches: [main, develop, 'releases/**']
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 jobs:
   check-pr:
     runs-on: ubuntu-latest
-    
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: alphadb
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: 06087083
-          POSTGRES_PORT: 5433
-        ports:
-          - 5433:5433
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      backend:
-        image: ghcr.io/${{ github.repository }}/backend:latest  # Используем образ из GitHub Container Registry
-        env:
-          DB_HOST: postgres
-          DB_NAME: alphadb
-          DB_USER: postgres
-          DB_PASS: 06087083
-          DB_PORT: 5433
-        ports:
-          - 8000:8000
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      # Сборка образа backend
-      - name: Build backend image
-        run: |
-          docker build -t ghcr.io/${{ github.repository }}/backend:latest ./backend
-
-      - name: Wait for backend service
-        run: |
-          echo "Ожидание запуска backend сервиса..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8000/; then
-              echo "Backend сервис доступен"
-              break
-            fi
-            echo "Попытка $i - сервис недоступен, ожидание..."
-            sleep 2
-            if [ $i -eq 30 ]; then
-              echo "Backend сервис не запустился"
-              exit 1
-            fi
-          done
 
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v45
-
-      - name: Get file details
-        run: |
-          echo "Детальная информация об измененных файлах:"
-          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-            echo "Файл: $file"
-            echo "Содержимое:"
-            cat "$file" || echo "Не удалось прочитать файл"
-            echo "Последнее изменение:"
-            git log -1 --format="%h | %an | %ad | %s" -- "$file"
-            echo "----------------------------------------"
-          done
 
       - name: Debug changed files
         run: |
@@ -182,39 +27,26 @@ jobs:
       - name: Run code quality check
         env:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
-          API_URL: "http://localhost:8000/check-quality"
+          API_URL: "https://arrivals-worker-harvest-death.trycloudflare.com/check-quality"
         run: |
           if [ -z "$CHANGED_FILES" ]; then
             echo "Изменения в файлах не обнаружены"
             exit 0
           fi
 
-          JSON_PAYLOAD=$(jq -n '{"files": []}')
+          echo "Отправляем файлы на проверку: $CHANGED_FILES"
           
-          for file in $CHANGED_FILES; do
-            CONTENT=$(base64 -w 0 "$file" 2>/dev/null || echo "")
-            COMMIT_INFO=$(git log -1 --format='{"hash":"%h","author":"%an","date":"%ad","message":"%s"}' -- "$file")
-            
-            JSON_PAYLOAD=$(echo $JSON_PAYLOAD | jq --arg file "$file" \
-                                                 --arg content "$CONTENT" \
-                                                 --argjson commit "$COMMIT_INFO" \
-              '.files += [{
-                "filename": $file,
-                "content": $content,
-                "commit": $commit
-              }]')
-          done
-
-          echo "Подготовленные данные:"
-          echo "$JSON_PAYLOAD" | jq '.'
-
+          JSON_PAYLOAD=$(jq -n --arg files "$CHANGED_FILES" '{"files": ($files | split(" "))}')
+          
+          echo "Подготовленные данные: $JSON_PAYLOAD"
+          
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "$JSON_PAYLOAD" \
             "$API_URL")
-
+          
           echo "Ответ API: $RESPONSE"
-
+          
           if echo "$RESPONSE" | jq -e '.status == "success"' > /dev/null; then
             echo "Проверка пройдена успешно"
             exit 0
@@ -223,8 +55,3 @@ jobs:
             echo "Детали: $(echo "$RESPONSE" | jq -r '.details // .message')"
             exit 1
           fi
-
-      - name: Notify on failure
-        if: failure()
-        run: |
-          echo "Проверка PR завершилась с ошибкой"
