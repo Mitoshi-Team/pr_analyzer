@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 import os
-import sys
+import base64
 
 app = FastAPI(root_path="/api")
 
@@ -46,11 +46,29 @@ async def check_quality(request: Request):
     
     try:
         has_issues = False
+        processed_files = []
+        
+        for file in files:
+            filename = file.get("filename")
+            content_base64 = file.get("content")
+            commit = file.get("commit")
+            
+            if content_base64:
+                try:
+                    content = base64.b64decode(content_base64).decode('utf-8')
+                    processed_files.append(filename)
+                except:
+                    has_issues = True
+                    return {
+                        "status": "error",
+                        "message": f"Ошибка декодирования файла {filename}",
+                        "result": 1
+                    }
         
         return {
             "status": "success" if not has_issues else "failed",
             "message": "Проверка пройдена" if not has_issues else "Найдены проблемы",
-            "details": f"Проверены файлы: {', '.join(files)}",
+            "details": f"Проверены файлы: {', '.join(processed_files)}",
             "result": 0 if not has_issues else 1
         }
     except Exception as e:
