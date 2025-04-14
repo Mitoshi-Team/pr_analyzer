@@ -22,10 +22,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v45
+
+      - name: Get file details
+        run: |
+          echo "Детальная информация об измененных файлах:"
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            echo "Файл: $file"
+            echo "Содержимое:"
+            cat "$file" || echo "Не удалось прочитать файл"
+            echo "Последнее изменение:"
+            git log -1 --format="%h | %an | %ad | %s" -- "$file"
+            echo "----------------------------------------"
+          done
 
       - name: Debug changed files
         run: |
@@ -41,19 +55,37 @@ jobs:
             exit 0
           fi
 
-          echo "Отправляем файлы на проверку: $CHANGED_FILES"
+          # Создаем JSON с детальной информацией о файлах
+          JSON_PAYLOAD=$(jq -n '{"files": []}')
           
-          JSON_PAYLOAD=$(jq -n --arg files "$CHANGED_FILES" '{"files": ($files | split(" "))}')
-          
-          echo "Подготовленные данные: $JSON_PAYLOAD"
-          
+          for file in $CHANGED_FILES; do
+            # Получаем содержимое файла в base64
+            CONTENT=$(base64 -w 0 "$file" 2>/dev/null || echo "")
+            
+            # Получаем информацию о последнем коммите
+            COMMIT_INFO=$(git log -1 --format='{"hash":"%h","author":"%an","date":"%ad","message":"%s"}' -- "$file")
+            
+            # Добавляем информацию о файле в JSON
+            JSON_PAYLOAD=$(echo $JSON_PAYLOAD | jq --arg file "$file" \
+                                                 --arg content "$CONTENT" \
+                                                 --argjson commit "$COMMIT_INFO" \
+              '.files += [{
+                "filename": $file,
+                "content": $content,
+                "commit": $commit
+              }]')
+          done
+
+          echo "Подготовленные данные:"
+          echo "$JSON_PAYLOAD" | jq '.'
+
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
             -d "$JSON_PAYLOAD" \
             "$API_URL")
-          
+
           echo "Ответ API: $RESPONSE"
-          
+
           if echo "$RESPONSE" | jq -e '.status == "success"' > /dev/null; then
             echo "Проверка пройдена успешно"
             exit 0
