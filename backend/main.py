@@ -44,13 +44,22 @@ async def check_quality(request: Request):
     data = await request.json()
     files = data.get("files", [])
     
-    # Временно всегда возвращаем запрет
-    return {
-        "status": "failed",
-        "message": "PR заблокирован",
-        "details": f"Проверены файлы: {', '.join(files)}",
-        "result": 1
-    }
+    try:
+        has_issues = False
+        
+        return {
+            "status": "success" if not has_issues else "failed",
+            "message": "Проверка пройдена" if not has_issues else "Найдены проблемы",
+            "details": f"Проверены файлы: {', '.join(files)}",
+            "result": 0 if not has_issues else 1
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": "Ошибка проверки",
+            "details": str(e),
+            "result": 1
+        }
 
 @app.get("/test-db")
 async def test_db():

@@ -48,7 +48,7 @@ jobs:
       - name: Run code quality check
         env:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
-          API_URL: "https://arrivals-worker-harvest-death.trycloudflare.com/check-quality"
+          API_URL: "http://backend:8000/check-quality"
         run: |
           if [ -z "$CHANGED_FILES" ]; then
             echo "Изменения в файлах не обнаружены"
