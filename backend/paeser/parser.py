@@ -88,7 +88,7 @@ class GitHubParser:
                 continue
 
         # Если нужно сохранять данные в файл раскоментить
-        # self.save_to_json(parsed_data, save_to)
+        # # # self.save_to_json(parsed_data, save_to)
         return parsed_data
 
 
