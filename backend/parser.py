@@ -104,7 +104,7 @@ class GitHubParser:
         return "\n".join(code)
 
 
-    def parse_prs(self, owner, repo, save_to="pr_data.json"):
+    def parse_prs(self, owner, repo, state="open", save_to="pr_data.json"):
         """
         Парсинг открытых pull request'ов из репозитория.
         
@@ -116,7 +116,7 @@ class GitHubParser:
         Returns:
             list: Список словарей с данными о pull request'ах.
         """
-        return self._parse(owner, repo, "open", save_to)
+        return self._parse(owner, repo, state, save_to)
 
 
     def _parse(self, owner, repo, state, save_to, merged_only=False):
@@ -156,7 +156,7 @@ class GitHubParser:
                 continue
 
         # Если нужно сохранять данные в файл раскоментить
-        # # # self.save_to_json(parsed_data, save_to)
+        # self.save_to_json(parsed_data, save_to)
         return parsed_data
 
 
