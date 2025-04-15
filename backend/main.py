@@ -14,11 +14,17 @@ from pydantic import BaseModel
 
 # Модель данных для отчета
 class ReportRequest(BaseModel):
+    """
+    Модель запроса на создание отчета.
+    """
     email: str
     startDate: str
     endDate: str
 
 class ReportResponse(BaseModel):
+    """
+    Модель ответа с данными отчета.
+    """
     id: str
     email: str
     created_at: str
@@ -59,10 +65,25 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 
 @app.get("/")
 async def read_root():
+    """
+    Корневой эндпоинт API.
+    
+    Returns:
+        dict: Приветственное сообщение.
+    """
     return {"message": "Hello from FastAPI in Docker!"}
 
 @app.post("/check-quality")
 async def check_quality(request: Request):
+    """
+    Проверка качества кода в файлах.
+    
+    Args:
+        request (Request): Запрос с данными файлов.
+        
+    Returns:
+        dict: Результат проверки с сообщением о статусе.
+    """
     data = await request.json()
     files = data.get("files", [])
     
@@ -103,6 +124,12 @@ async def check_quality(request: Request):
 
 @app.get("/test-db")
 async def test_db():
+    """
+    Тестирование соединения с базой данных.
+    
+    Returns:
+        dict: Статус подключения к БД.
+    """
     try:
         async with async_session() as session:
             # Выполняем тестовый запрос
@@ -114,6 +141,12 @@ async def test_db():
 
 @app.get("/tables")
 async def get_tables():
+    """
+    Получение списка всех таблиц в базе данных.
+    
+    Returns:
+        dict: Список таблиц или сообщение об ошибке.
+    """
     try:
         async with async_session() as session:
             # SQL запрос для получения списка всех таблиц
@@ -132,6 +165,18 @@ async def get_tables():
 
 @app.post("/reports/generate")
 async def generate_report(report_req: ReportRequest):
+    """
+    Генерация отчета о проверке кода.
+    
+    Args:
+        report_req (ReportRequest): Запрос на создание отчета с email и датами.
+        
+    Returns:
+        dict: Статус создания отчета и ID отчета.
+        
+    Raises:
+        HTTPException: Если произошла ошибка при создании отчета.
+    """
     try:
         report_id = str(uuid.uuid4())
         
@@ -160,6 +205,15 @@ async def generate_report(report_req: ReportRequest):
 
 @app.get("/reports")
 async def get_reports():
+    """
+    Получение списка всех отчетов.
+    
+    Returns:
+        list: Список всех отчетов в системе.
+        
+    Raises:
+        HTTPException: Если произошла ошибка при получении списка отчетов.
+    """
     try:
         async with async_session() as session:
             result = await session.execute(text("""
@@ -183,6 +237,18 @@ async def get_reports():
 
 @app.get("/reports/{report_id}/download")
 async def download_report(report_id: str):
+    """
+    Скачивание отчета по ID.
+    
+    Args:
+        report_id (str): Идентификатор отчета.
+        
+    Returns:
+        FileResponse: Файл отчета для скачивания.
+        
+    Raises:
+        HTTPException: Если отчет не найден или произошла ошибка при скачивании.
+    """
     try:
         async with async_session() as session:
             result = await session.execute(text("""
@@ -215,7 +281,10 @@ async def download_report(report_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при скачивании отчета: {str(e)}")
 
-# Очистка при завершении работы
 @app.on_event("shutdown")
 async def shutdown():
+    """
+    Обработчик события завершения работы приложения.
+    Освобождает ресурсы подключения к БД.
+    """
     await engine.dispose()
