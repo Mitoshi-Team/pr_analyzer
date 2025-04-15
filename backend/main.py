@@ -1,10 +1,28 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
+from typing import List, Optional
+from datetime import datetime
 import os
 import base64
+import uuid
+import json
+from pydantic import BaseModel
+
+# Модель данных для отчета
+class ReportRequest(BaseModel):
+    email: str
+    startDate: str
+    endDate: str
+
+class ReportResponse(BaseModel):
+    id: str
+    email: str
+    created_at: str
+    file_data: str
 
 app = FastAPI(root_path="/api")
 
@@ -34,6 +52,10 @@ engine = create_async_engine(DATABASE_URL, echo=True)  # echo=True для отл
 async_session = sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
+
+# Папка для хранения отчетов (будет использоваться временно для создания файлов)
+REPORTS_DIR = os.path.join(os.path.dirname(__file__), "reports")
+os.makedirs(REPORTS_DIR, exist_ok=True)
 
 @app.get("/")
 async def read_root():
@@ -105,6 +127,93 @@ async def get_tables():
             return {"tables": tables}
     except Exception as e:
         return {"error": str(e)}
+
+# Эндпоинты для работы с отчетами
+
+@app.post("/reports/generate")
+async def generate_report(report_req: ReportRequest):
+    try:
+        report_id = str(uuid.uuid4())
+        
+        # Создаем содержимое отчета
+        report_content = f"Отчет для: {report_req.email}\n"
+        report_content += f"Период: с {report_req.startDate} по {report_req.endDate}\n"
+        report_content += f"Создан: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        report_content += "Это демонстрационный отчет о проверке кода.\n"
+        report_content += "Здесь будут результаты анализа PR за указанный период.\n"
+        
+        # Сохраняем информацию об отчете в БД
+        async with async_session() as session:
+            await session.execute(text("""
+                INSERT INTO code_review_reports (id, email, creation_date, file_data)
+                VALUES (:id, :email, CURRENT_TIMESTAMP, :file_data)
+            """), {
+                "id": report_id,
+                "email": report_req.email,
+                "file_data": report_content
+            })
+            await session.commit()
+            
+        return {"success": True, "report_id": report_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании отчета: {str(e)}")
+
+@app.get("/reports")
+async def get_reports():
+    try:
+        async with async_session() as session:
+            result = await session.execute(text("""
+                SELECT id, email, creation_date, file_data
+                FROM code_review_reports
+                ORDER BY creation_date DESC
+            """))
+            
+            reports = []
+            for row in result:
+                reports.append({
+                    "id": row[0],
+                    "email": row[1],
+                    "created_at": row[2].isoformat() if row[2] else None,
+                    "file_data": row[3]
+                })
+            
+            return reports
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении списка отчетов: {str(e)}")
+
+@app.get("/reports/{report_id}/download")
+async def download_report(report_id: str):
+    try:
+        async with async_session() as session:
+            result = await session.execute(text("""
+                SELECT file_data, email FROM code_review_reports WHERE id = :report_id
+            """), {"report_id": report_id})
+            
+            row = result.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Отчет не найден")
+                
+            file_data = row[0]
+            email = row[1]
+            
+            # Создаем временный файл для скачивания
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            file_name = f"report_{email}_{timestamp}.txt"
+            file_path = os.path.join(REPORTS_DIR, file_name)
+            
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(file_data)
+                
+            return FileResponse(
+                path=file_path, 
+                filename=file_name,
+                media_type='text/plain',
+                background=FileResponse.BackgroundTask(lambda: os.remove(file_path) if os.path.exists(file_path) else None)
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при скачивании отчета: {str(e)}")
 
 # Очистка при завершении работы
 @app.on_event("shutdown")
