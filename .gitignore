@@ -1,1 +1,7 @@
 __pycache__/
+
+# Model files
+model/
+
+# Dependencies
+node_modules/
