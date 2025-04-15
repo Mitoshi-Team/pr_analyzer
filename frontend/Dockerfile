@@ -1,17 +1,32 @@
-# Используем официальный образ Node.js
-FROM node:20
+# Этап сборки (build stage)
+FROM node:16-alpine as build-stage
 
-# Устанавливаем рабочую директорию
+# Установка рабочей директории
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
+# Копирование package.json и package-lock.json (если существует)
 COPY package*.json ./
 
-# Устанавливаем зависимости
+# Установка зависимостей
 RUN npm install
 
-# Копируем весь код фронтенда
+# Копирование исходного кода проекта
 COPY . .
 
-# Запускаем Vite в режиме разработки
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+# Сборка проекта для продакшн
+RUN npm run build
+
+# Этап запуска (production stage)
+FROM nginx:stable-alpine as production-stage
+
+# Копирование собранного проекта из стадии сборки в директорию nginx
+COPY --from=build-stage /app/dist /usr/share/nginx/html
+
+# Опционально: если вам нужна кастомная nginx конфигурация
+# COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Открываем порт 80
+EXPOSE 80
+
+# Запуск nginx
+CMD ["nginx", "-g", "daemon off;"]
