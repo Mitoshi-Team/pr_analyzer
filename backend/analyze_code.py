@@ -12,9 +12,17 @@ HEADERS = {"Content-Type": "application/json"}
 
 
 OUTPUT_TXT_PATH = "D:/alpha_insurance/backend/output.txt"
-# Читает содержимое файла с кодом для анализа
+
 def read_input_file(file_path):
-   
+    """
+    Чтение содержимого файла с кодом для анализа.
+    
+    Args:
+        file_path (str): Путь к файлу с исходным кодом.
+        
+    Returns:
+        str или None: Содержимое файла или None в случае ошибки.
+    """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read().strip()
@@ -24,9 +32,17 @@ def read_input_file(file_path):
     except Exception as e:
         print(f"Ошибка при чтении файла: {e}")
         return None
- # Отправляет запрос к API для анализа кода.
+
 def send_request_to_api(prompt):
-  
+    """
+    Отправка запроса к API для анализа кода.
+    
+    Args:
+        prompt (str): Исходный код для анализа.
+        
+    Returns:
+        dict или None: Ответ API в формате JSON или None в случае ошибки.
+    """
     instruction = """Проанализируй следующий код и предоставь структурированный анализ в следующем формате:
                     1. СЛОЖНОСТЬ:
                     - Цикломатическая сложность (McCabe)
@@ -75,9 +91,15 @@ def send_request_to_api(prompt):
     except requests.exceptions.RequestException as e:
         print(f"Ошибка при отправке запроса: {e}")
         return None
-# Сохраняет результат анализа в файл.
+
 def save_response(response, output_path):
-   
+    """
+    Сохранение результата анализа в файл.
+    
+    Args:
+        response (dict): Ответ API с результатами анализа.
+        output_path (str): Путь для сохранения результатов.
+    """
     try:
         if response and "choices" in response and len(response["choices"]) > 0:
             content = response["choices"][0]["message"]["content"]
@@ -94,9 +116,14 @@ def save_response(response, output_path):
             print("Нет ответа для сохранения")
     except Exception as e:
         print(f"Ошибка при сохранении ответа: {e}")
-# Открывает диалоговое окно для выбора файла с кодом.
+
 def select_input_file():
+    """
+    Открытие диалогового окна для выбора файла с кодом.
     
+    Returns:
+        str или None: Путь к выбранному файлу или None, если файл не выбран.
+    """
     root = tk.Tk()
     root.withdraw()  # Скрываем основное окно
     file_path = filedialog.askopenfilename(
@@ -110,9 +137,14 @@ def select_input_file():
         ]
     )
     return file_path if file_path else None
-#  Обрабатывает аргументы командной строки, организует процесс анализа кода и сохранения результатов.
+
 def main():
-   
+    """
+    Основная функция программы.
+    
+    Обрабатывает аргументы командной строки, организует процесс анализа кода 
+    и сохранения результатов.
+    """
     parser = argparse.ArgumentParser(description="Анализ кода с помощью AI")
     parser.add_argument("--file", "-f", help="Путь к файлу с кодом для анализа")
     args = parser.parse_args()
