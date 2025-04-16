@@ -1,7 +1,7 @@
 import requests
 from datetime import datetime
 import json
-import sys
+import re
 from сode_analysis import send_request_to_api, parse_analysis
 import os
 
@@ -112,7 +112,7 @@ class GitHubParser:
             return []
 
 
-    def parse_prs(self, owner, repo, start_date=None, end_date=None, author_email=None, save_to="pr_data.json"):
+    def parse_prs(self, owner, repo, start_date=None, end_date=None, author_username=None, save_to="pr_data.json"):
         """
         Получение и анализ pull request'ов из репозитория за указанный период времени для указанного автора.
         
@@ -162,25 +162,11 @@ class GitHubParser:
                 continue
             if end_datetime and pr_created_at > end_datetime:
                 continue
-                
-            # Получаем информацию о пользователе для проверки email
-            if author_email:
-                # GitHub API не возвращает email в базовом запросе PR
-                # Нужно получить детальную информацию о пользователе
-                try:
-                    user_url = pr["user"]["url"]
-                    user_response = requests.get(user_url, headers=self.headers)
-                    user_response.raise_for_status()
-                    user_data = user_response.json()
-                    
-                    # Проверяем соответствие email
-                    user_email = user_data.get("email")
-                    if not user_email or user_email.lower() != author_email.lower():
-                        continue
-                except Exception as e:
-                    print(f"Ошибка при получении информации о пользователе: {e}")
-                    continue
-            
+
+            # Фильтрация по имени пользователя
+            if author_username and pr["user"]["login"].lower() != author_username.lower():
+                continue
+
             pr_number = pr["number"]
             try:
                 diff = self.get_pr_diff(owner, repo, pr_number)
@@ -275,21 +261,35 @@ class GitHubParser:
             print(f"Error saving to JSON: {e}")
             raise e
 
+    def extract_owner_repo(self, link):
+        # Регулярное выражение для извлечения owner и repo
+        pattern = r'(?:https?://github\.com/)?([\w-]+)/([\w-]+)'
+        match = re.match(pattern, link)
+        
+        if match:
+            owner = match.group(1)
+            repo = match.group(2)
+            return owner, repo
+        else:
+            raise ValueError("Неверный формат ссылки или строки. Ожидается 'owner/repo' или 'https://github.com/owner/repo'")
 
-    def analyze_all_prs(self, owner, repo, start_date=None, end_date=None, author_email=None, save_to="analysis_report.json"):
-        import os
-        
-        prs_data = self.parse_prs(owner, repo, start_date, end_date, author_email)
-        
+    def analyze_all_prs(self, link, start_date=None, end_date=None, author_username=None, save_to="analysis_report.json"):
+
+        owner, repo = self.extract_owner_repo(link)
+
+        prs_data = self.parse_prs(owner, repo, start_date, end_date, author_username)
+
         # Проверяем есть ли PR
         if not prs_data:
             print(f"Предупреждение: PR не найдены для репозитория {owner}/{repo}")
-            if author_email:
-                print(f"с email: {author_email}")
+            if author_username:
+                print(f"с username: {author_username}")
             if start_date or end_date:
                 print(f"за период: {start_date or 'начало'} - {end_date or 'конец'}")
             return None
         
+        prs_data = sorted(prs_data, key=lambda x: x['author'].lower())
+
         # Используем относительный путь вместо хардкода
         base_dir = os.path.dirname(__file__)
         # Создаем директорию для анализов если её нет
@@ -385,5 +385,4 @@ class GitHubParser:
 
 parser = GitHubParser()
 # Передаем параметры для фильтрации PR по дате и автору
-# https://github.com/microsoft/vscode-extension-samples
-results = parser.analyze_all_prs("microsoft", "vscode-extension-samples", start_date=None, end_date=None, author_email="mrljtster@gmail.com", save_to="analysis_report.json")
+results = parser.analyze_all_prs("https://github.com/INFORGi/Diploma-thesis", start_date=None, end_date=None, author_username="INFORGggi", save_to="analysis_report.json")
