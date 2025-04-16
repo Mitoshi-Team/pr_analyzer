@@ -149,118 +149,153 @@ def pars_pr(token, owner, repo, state, start_date=None, end_date=None, author_em
         print('Error:', str(e))
 
 
-@app.get("/reports/generate")
-async def generate_report():
-    # Пример данных
-    data = {
-        "Общая оценка кода": 7.5,
-        "Повторяющиеся проблемы": [
-            "Недостаток комментариев",
-            "Слабое покрытие тестами",
-            "Нарушение соглашений об именовании"
-        ],
-        "Антипаттерны": [
-            "God Object",
-            "Copy-Paste Programming"
-        ],
-        "PRs": [
-            {
-                "Ссылка на PR": "https://github.com/example/repo/pull/101",
-                "Описание PR": "Добавлен функционал экспорта данных в CSV",
-                "Оценка сложности кода": "M",
-                "Оценка кода": 6,
-                "Список проблем": [
-                    "Недостаточно покрыт unit-тестами",
-                    "Смешение логики и представления"
-                ],
-                "Антипаттерны": [
-                    "Spaghetti Code"
-                ],
-                "Положительные моменты": [
-                    "Хорошая читаемость кода",
-                    "Соответствие стилю проекта"
-                ]
-            },
-            {
-                "Ссылка на PR": "https://github.com/example/repo/pull/102",
-                "Описание PR": "Рефакторинг модуля авторизации",
-                "Оценка сложности кода": "L",
-                "Оценка кода": 8,
-                "Список проблем": [
-                    "Слишком длинные функции"
-                ],
-                "Антипаттерны": [
-                    "Long Method"
-                ],
-                "Положительные моменты": [
-                    "Выделены интерфейсы",
-                    "Улучшена структура классов"
-                ]
-            }
-        ]
-    }
+@app.post("/reports/generate")
+async def generate_report(report_req: ReportRequest):
+    """
+    Генерация отчета о проверке кода.
+    
+    Args:
+        report_req (ReportRequest): Запрос на создание отчета с email и датами.
+        
+    Returns:
+        dict: Статус создания отчета и данные для скачивания.
+    """
+    try:
+        # Создаем буфер для PDF
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        c.setFont('DejaVuSans', 12)
+        width, height = A4
 
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A4)
-    c.setFont('DejaVuSans', 12)
-    width, height = A4
+        y = height - 50
+        line_height = 15
 
-    y = height - 50
-    line_height = 15
+        def write_line(text, indent=0):
+            nonlocal y
+            c.drawString(50 + indent * 20, y, text)
+            y -= line_height
+            if y < 50:
+                c.showPage()
+                c.setFont('DejaVuSans', 12)
+                y = height - 50
 
-    def write_line(text, indent=0):
-        nonlocal y
-        c.drawString(50 + indent * 20, y, text)
-        y -= line_height
-        if y < 50:
-            c.showPage()
-            c.setFont('DejaVuSans', 12)
-            y = height - 50
-
-    # Генерация отчета
-    write_line("Отчет об оценке качества кода", 0)
-    write_line(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    write_line("")
-    write_line(f"Общая оценка кода: {data['Общая оценка кода']}")
-    write_line("Повторяющиеся проблемы:")
-    for problem in data["Повторяющиеся проблемы"]:
-        write_line(f"- {problem}", 1)
-
-    write_line("Антипаттерны:")
-    for pattern in data["Антипаттерны"]:
-        write_line(f"- {pattern}", 1)
-
-    write_line("")
-    write_line("Анализ Pull Requests:")
-    for pr in data["PRs"]:
-        write_line(f"Ссылка на PR: {pr['Ссылка на PR']}", 1)
-        write_line(f"Описание PR: {pr['Описание PR']}", 1)
-        write_line(f"Оценка сложности: {pr['Оценка сложности кода']}", 1)
-        write_line(f"Оценка кода: {pr['Оценка кода']}", 1)
-
-        write_line("Проблемы:", 1)
-        for p in pr["Список проблем"]:
-            write_line(f"- {p}", 2)
-
-        write_line("Антипаттерны:", 1)
-        for a in pr["Антипаттерны"]:
-            write_line(f"- {a}", 2)
-
-        write_line("Положительные моменты:", 1)
-        for pos in pr["Положительные моменты"]:
-            write_line(f"- {pos}", 2)
+        # Генерация отчета
+        write_line(f"Отчет об оценке качества кода для {report_req.email}")
+        write_line(f"Период: с {report_req.startDate} по {report_req.endDate}")
+        write_line(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         write_line("")
-
-    c.save()
-    buffer.seek(0)
-
-    return StreamingResponse(
-        buffer,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": "attachment; filename=code_report.pdf"
+        
+        # Примерные данные для демонстрации
+        data = {
+            "Общая оценка кода": 7.5,
+            "Повторяющиеся проблемы": [
+                "Недостаток комментариев",
+                "Слабое покрытие тестами",
+                "Нарушение соглашений об именовании"
+            ],
+            "Антипаттерны": [
+                "God Object",
+                "Copy-Paste Programming"
+            ],
+            "PRs": [
+                {
+                    "Ссылка на PR": "https://github.com/example/repo/pull/101",
+                    "Описание PR": "Добавлен функционал экспорта данных в CSV",
+                    "Оценка сложности кода": "M",
+                    "Оценка кода": 6,
+                    "Список проблем": [
+                        "Недостаточно покрыт unit-тестами",
+                        "Смешение логики и представления"
+                    ],
+                    "Антипаттерны": [
+                        "Spaghetti Code"
+                    ],
+                    "Положительные моменты": [
+                        "Хорошая читаемость кода",
+                        "Соответствие стилю проекта"
+                    ]
+                },
+                {
+                    "Ссылка на PR": "https://github.com/example/repo/pull/102",
+                    "Описание PR": "Рефакторинг модуля авторизации",
+                    "Оценка сложности кода": "L",
+                    "Оценка кода": 8,
+                    "Список проблем": [
+                        "Слишком длинные функции"
+                    ],
+                    "Антипаттерны": [
+                        "Long Method"
+                    ],
+                    "Положительные моменты": [
+                        "Выделены интерфейсы",
+                        "Улучшена структура классов"
+                    ]
+                }
+            ]
         }
-    )
+
+        write_line(f"Общая оценка кода: {data['Общая оценка кода']}")
+        write_line("Повторяющиеся проблемы:")
+        for problem in data["Повторяющиеся проблемы"]:
+            write_line(f"- {problem}", 1)
+
+        write_line("Антипаттерны:")
+        for pattern in data["Антипаттерны"]:
+            write_line(f"- {pattern}", 1)
+
+        write_line("")
+        write_line("Анализ Pull Requests:")
+        for pr in data["PRs"]:
+            write_line(f"Ссылка на PR: {pr['Ссылка на PR']}", 1)
+            write_line(f"Описание PR: {pr['Описание PR']}", 1)
+            write_line(f"Оценка сложности: {pr['Оценка сложности кода']}", 1)
+            write_line(f"Оценка кода: {pr['Оценка кода']}", 1)
+
+            write_line("Проблемы:", 1)
+            for p in pr["Список проблем"]:
+                write_line(f"- {p}", 2)
+
+            write_line("Антипаттерны:", 1)
+            for a in pr["Антипаттерны"]:
+                write_line(f"- {a}", 2)
+
+            write_line("Положительные моменты:", 1)
+            for pos in pr["Положительные моменты"]:
+                write_line(f"- {pos}", 2)
+            write_line("")
+
+        c.save()
+        buffer.seek(0)
+        
+        # Создаем id для отчета
+        report_id = str(uuid.uuid4())
+        
+        # Здесь можно сохранить отчет в БД если нужно
+        try:
+            async with async_session() as session:
+                await session.execute(text("""
+                    INSERT INTO code_review_reports (id, email, creation_date, file_data)
+                    VALUES (:id, :email, CURRENT_TIMESTAMP, :file_data)
+                """), {
+                    "id": report_id,
+                    "email": report_req.email,
+                    "file_data": "PDF Report" # Здесь можно сохранить base64 PDF
+                })
+                await session.commit()
+        except Exception as db_error:
+            print(f"Предупреждение: не удалось сохранить отчет в БД: {str(db_error)}")
+            # Продолжаем выполнение, даже если запись в БД не удалась
+        
+        # Возвращаем PDF как ответ
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=report_{report_req.email.replace('@', '_')}.pdf"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании отчета: {str(e)}")
 
 
 @app.get("/test-db")
@@ -303,46 +338,6 @@ async def get_tables():
         return {"error": str(e)}
 
 # Эндпоинты для работы с отчетами
-
-# @app.post("/reports/generate")
-# async def generate_report(report_req: ReportRequest):
-#     """
-#     Генерация отчета о проверке кода.
-    
-#     Args:
-#         report_req (ReportRequest): Запрос на создание отчета с email и датами.
-        
-#     Returns:
-#         dict: Статус создания отчета и ID отчета.
-        
-#     Raises:
-#         HTTPException: Если произошла ошибка при создании отчета.
-#     """
-#     try:
-#         report_id = str(uuid.uuid4())
-        
-#         # Создаем содержимое отчета
-#         report_content = f"Отчет для: {report_req.email}\n"
-#         report_content += f"Период: с {report_req.startDate} по {report_req.endDate}\n"
-#         report_content += f"Создан: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-#         report_content += "Это демонстрационный отчет о проверке кода.\n"
-#         report_content += "Здесь будут результаты анализа PR за указанный период.\n"
-        
-#         # Сохраняем информацию об отчете в БД
-#         async with async_session() as session:
-#             await session.execute(text("""
-#                 INSERT INTO code_review_reports (id, email, creation_date, file_data)
-#                 VALUES (:id, :email, CURRENT_TIMESTAMP, :file_data)
-#             """), {
-#                 "id": report_id,
-#                 "email": report_req.email,
-#                 "file_data": report_content
-#             })
-#             await session.commit()
-            
-#         return {"success": True, "report_id": report_id}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Ошибка при создании отчета: {str(e)}")
 
 @app.get("/reports")
 async def get_reports():

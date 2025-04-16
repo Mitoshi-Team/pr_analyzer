@@ -22,8 +22,8 @@ FROM nginx:stable-alpine as production-stage
 # Копирование собранного проекта из стадии сборки в директорию nginx
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 
-# Опционально: если вам нужна кастомная nginx конфигурация
-# COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Копирование кастомной nginx конфигурации
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Открываем порт 80
 EXPOSE 80
