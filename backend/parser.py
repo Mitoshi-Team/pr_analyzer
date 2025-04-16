@@ -2,7 +2,8 @@ import requests
 from datetime import datetime
 import json
 import sys
-from backend.сode_analysis import send_request_to_api, parse_analysis
+from сode_analysis import send_request_to_api, parse_analysis
+import os
 
 
 class GitHubParser:
@@ -111,17 +112,75 @@ class GitHubParser:
             return []
 
 
-    def parse_prs(self, owner, repo, save_to="pr_data.json"):
-        import os
+    def parse_prs(self, owner, repo, start_date=None, end_date=None, author_email=None, save_to="pr_data.json"):
+        """
+        Получение и анализ pull request'ов из репозитория за указанный период времени для указанного автора.
+        
+        Args:
+            owner (str): Владелец репозитория.
+            repo (str): Название репозитория.
+            start_date (str, optional): Начальная дата периода в формате "YYYY-MM-DD". По умолчанию None (без ограничения).
+            end_date (str, optional): Конечная дата периода в формате "YYYY-MM-DD". По умолчанию None (без ограничения).
+            author_email (str, optional): Почта автора PR для фильтрации. По умолчанию None (все авторы).
+            save_to (str, optional): Путь для сохранения данных. По умолчанию "pr_data.json".
+            
+        Returns:
+            list: Список словарей с данными о pull request'ах.
+        """
         
         # Создаем директорию для анализов если её нет
-        analysis_dir = "D:\\alpha_insurance\\backend\\pr_files"
+        analysis_dir = os.path.join(os.path.dirname(__file__), "pr_files")
         os.makedirs(analysis_dir, exist_ok=True)
         
-        pr_list = self.get_pr_list(owner, repo, state="open")
+        # Конвертируем строковые даты в объекты datetime для сравнения
+        start_datetime = None
+        end_datetime = None
+        
+        if start_date:
+            try:
+                start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                print(f"Неверный формат начальной даты: {start_date}. Используйте формат YYYY-MM-DD.")
+        
+        if end_date:
+            try:
+                end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
+                # Устанавливаем время на конец дня
+                end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+            except ValueError:
+                print(f"Неверный формат конечной даты: {end_date}. Используйте формат YYYY-MM-DD.")
+        
+        pr_list = self.get_pr_list(owner, repo, state="all")  # Получаем все PR для последующей фильтрации
         parsed_data = []
 
         for pr in pr_list:
+            # Проверяем, соответствует ли PR заданному периоду времени
+            pr_created_at = datetime.strptime(pr["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+            
+            # Фильтрация по дате
+            if start_datetime and pr_created_at < start_datetime:
+                continue
+            if end_datetime and pr_created_at > end_datetime:
+                continue
+                
+            # Получаем информацию о пользователе для проверки email
+            if author_email:
+                # GitHub API не возвращает email в базовом запросе PR
+                # Нужно получить детальную информацию о пользователе
+                try:
+                    user_url = pr["user"]["url"]
+                    user_response = requests.get(user_url, headers=self.headers)
+                    user_response.raise_for_status()
+                    user_data = user_response.json()
+                    
+                    # Проверяем соответствие email
+                    user_email = user_data.get("email")
+                    if not user_email or user_email.lower() != author_email.lower():
+                        continue
+                except Exception as e:
+                    print(f"Ошибка при получении информации о пользователе: {e}")
+                    continue
+            
             pr_number = pr["number"]
             try:
                 diff = self.get_pr_diff(owner, repo, pr_number)
@@ -217,16 +276,23 @@ class GitHubParser:
             raise e
 
 
-    def analyze_all_prs(self, owner, repo, save_to="analysis_report.json"):
+    def analyze_all_prs(self, owner, repo, start_date=None, end_date=None, author_email=None, save_to="analysis_report.json"):
         import os
         
-        prs_data = self.parse_prs(owner, repo)
-        save_to = "D:\\alpha_insurance\\backend\\" + save_to
+        prs_data = self.parse_prs(owner, repo, start_date, end_date, author_email)
+        
+        # Используем относительный путь вместо хардкода
+        base_dir = os.path.dirname(__file__)
+        # Создаем директорию для анализов если её нет
+        analysis_dir = os.path.join(base_dir, "pr_files")
+        os.makedirs(analysis_dir, exist_ok=True)
+        
+        # Сохраняем отчет в папке pr_files
+        save_to_path = os.path.join(analysis_dir, save_to)
         
         # Собираем данные по всем PR для отправки в ИИ
         prs_analysis_data = []
         
-        analysis_dir = "D:\\alpha_insurance\\backend\\pr_files"
         for pr in prs_data:
             analysis_file = os.path.join(analysis_dir, f"pr_{pr['id_pr']}_analysis.json")
             try:
@@ -247,9 +313,9 @@ class GitHubParser:
         final_report = self.generate_final_report(prs_analysis_data)
         
         if save_to:
-            self.save_to_json(final_report, save_to)
+            self.save_to_json(final_report, save_to_path)
             # Создаем полный отчет после сохранения основного анализа
-            self.create_full_report(final_report, prs_data, prs_analysis_data, save_to)
+            self.create_full_report(final_report, prs_data, prs_analysis_data, save_to_path)
         
         return final_report
 
@@ -286,9 +352,15 @@ class GitHubParser:
             ]
         }"""
         
-        # Сохраняем пример запроса в файл
+        # Используем относительный путь к директории анализа
+        base_dir = os.path.dirname(__file__)
+        analysis_dir = os.path.join(base_dir, "pr_files")
+        os.makedirs(analysis_dir, exist_ok=True)
+        
+        # Сохраняем пример запроса в файл в папке pr_files
         prompt = instruction + "\n" + json.dumps(prs_analysis_data, ensure_ascii=False, indent=2)
-        with open("D:\\alpha_insurance\\final_report_prompt.txt", "w", encoding="utf-8") as f:
+        report_file = os.path.join(analysis_dir, "final_report_prompt.txt")
+        with open(report_file, "w", encoding="utf-8") as f:
             f.write(prompt)
             
         response = send_request_to_api(prompt)
@@ -298,4 +370,6 @@ class GitHubParser:
 
 
 parser = GitHubParser()
-results = parser.analyze_all_prs("microsoft", "vscode-extension-samples", "analysis_report.json")
+# Передаем параметры для фильтрации PR по дате и автору
+# https://github.com/microsoft/vscode-extension-samples
+results = parser.analyze_all_prs("microsoft", "vscode-extension-samples", start_date="2023-01-01", end_date="2025-12-31", author_email="mrljtster@gmail.com", save_to="analysis_report.json")

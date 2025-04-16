@@ -138,12 +138,12 @@ async def check_quality(request: Request):
 """
     Парсит данные и возвращает страшую структуру с данными
 """
-def pars_pr(token, owner, repo, state):
+def pars_pr(token, owner, repo, state, start_date=None, end_date=None, author_email=None):
     try:
         parser = GitHubParser(token)
 
         if not owner or not repo or not state: raise Exception("Missing required parameters: owner, repo, or state")
-        return parser.parse_prs(owner, repo, state)
+        return parser.parse_prs(owner, repo, start_date, end_date, author_email)
         
     except Exception as e:
         print('Error:', str(e))
