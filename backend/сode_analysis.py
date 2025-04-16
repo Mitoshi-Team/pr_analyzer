@@ -13,7 +13,7 @@ HEADERS = {"Content-Type": "application/json"}
 
 
 # Читает содержимое файла с кодом для анализа
-def read_input_file(file_path):
+def __read_input_file(file_path):
    
     try:
         with open(file_path, "r", encoding="utf-8") as f:
@@ -26,29 +26,28 @@ def read_input_file(file_path):
         return None
  # Отправляет запрос к API для анализа кода.
 def send_request_to_api(prompt):
-    instruction = """Проанализируй следующий код и предоставь анализ в JSON формате:
+    instruction = """Проанализируй следующий код или данные и предоставь анализ в JSON формате:
 {
-    "complexity": {
-        "level": "S|M|L",
-        "explanation": "Объяснение оценки сложности"
+    "сложность": {
+        "уровень": "S|M|L",
+        "объяснение": "Объяснение оценки сложности"
     },
-    "codeScore": {
-        "score": 0-10,
-        "explanation": "Обоснование оценки"
+    "оценка_кода": {
+        "балл": 0-10,
+        "объяснение": "Обоснование оценки"
     },
-    "issues": [
+    "проблемы": [
         {
-            "type": "critical|warning|info",
-            "description": "Описание проблемы"
+            "тип": "критическая|предупреждение|информация",
+            "описание": "Описание проблемы"
         }
     ],
-    "antipatterns": [
+    "антипаттерны": [
         {
-            "name": "Название антипаттерна",
-            "description": "Описание антипаттерна"
+            "название": "Название антипаттерна"
         }
     ],
-    "positiveAspects": [
+    "положительные_аспекты": [
         "Описание положительного аспекта"
     ]
 }"""
@@ -87,7 +86,7 @@ def parse_analysis(content):
         return None
 
 # Сохраняет результат анализа в файл.
-def save_response(response, output_path):
+def __save_response(response, output_path):
     try:
         if response and "choices" in response and len(response["choices"]) > 0:
             content = response["choices"][0]["message"]["content"]
@@ -110,7 +109,7 @@ def save_response(response, output_path):
         return None
 
 # Открывает диалоговое окно для выбора файла с кодом.
-def select_input_file():
+def __select_input_file():
     
     root = tk.Tk()
     root.withdraw()  # Скрываем основное окно
@@ -132,12 +131,12 @@ def main():
     parser.add_argument("--file", "-f", help="Путь к файлу с кодом для анализа")
     args = parser.parse_args()
 
-    input_file = args.file if args.file else select_input_file()
+    input_file = args.file if args.file else __select_input_file()
     if not input_file:
         print("Файл не выбран. Программа завершается.")
         return
 
-    prompt = read_input_file(input_file)
+    prompt = __read_input_file(input_file)
     if prompt is None:
         return
 
@@ -150,14 +149,14 @@ def main():
     if response is None:
         return
     
-    analysis = save_response(response, output_file)
+    analysis = __save_response(response, output_file)
     if analysis:
         print("\nРезультаты анализа:")
-        print(f"Сложность: {analysis.get('complexity', {}).get('level')}")
-        print(f"Оценка кода: {analysis.get('codeScore', {}).get('score')}/10")
-        print(f"Количество найденных проблем: {len(analysis.get('issues', []))}")
-        print(f"Количество антипаттернов: {len(analysis.get('antipatterns', []))}")
-        print(f"Количество положительных аспектов: {len(analysis.get('positiveAspects', []))}")
+        print(f"Сложность: {analysis.get('сложность', {}).get('уровень')}")
+        print(f"Оценка кода: {analysis.get('оценка_кода', {}).get('балл')}/10")
+        print(f"Количество найденных проблем: {len(analysis.get('проблемы', []))}")
+        print(f"Количество антипаттернов: {len(analysis.get('антипаттерны', []))}")
+        print(f"Количество положительных аспектов: {len(analysis.get('положительные_аспекты', []))}")
     
     print(f"\nПолный анализ сохранен в файл: {output_file}")
 
