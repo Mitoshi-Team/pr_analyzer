@@ -1,7 +1,11 @@
 __pycache__/
+<<<<<<< HEAD
 
 # Model files
 model/
 
 # Dependencies
 node_modules/
+=======
+model/
+>>>>>>> 2695112a1ad5234813624b5b5e509caa3f7c8821

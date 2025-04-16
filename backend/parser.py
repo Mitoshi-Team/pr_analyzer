@@ -2,7 +2,11 @@ import requests
 from datetime import datetime
 import json
 import sys
+<<<<<<< HEAD
 from backend.сode_analysis import send_request_to_api, parse_analysis
+=======
+from backend.analyze_code import send_request_to_api, parse_analysis
+>>>>>>> 2695112a1ad5234813624b5b5e509caa3f7c8821
 
 
 class GitHubParser:
