@@ -4,10 +4,17 @@ on:
   pull_request:
     branches:
       - main
+      - develop
+      - 'releases/**'
     types:
       - opened
       - synchronize
       - reopened
+  merge_group:
+    branches:
+      - main
+      - develop
+      - 'releases/**'
 
 jobs:
   check-pr:
@@ -15,10 +22,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Get changed files
         id: changed-files
         uses: tj-actions/changed-files@v45
+
+      - name: Get file details
+        run: |
+          echo "Детальная информация об измененных файлах:"
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            echo "Файл: $file"
+            echo "Содержимое:"
+            cat "$file" || echo "Не удалось прочитать файл"
+            echo "Последнее изменение:"
+            git log -1 --format="%h | %an | %ad | %s" -- "$file"
+            echo "----------------------------------------"
+          done
 
       - name: Debug changed files
         run: |
@@ -34,19 +55,46 @@ jobs:
             exit 0
           fi
 
-          echo "Отправляем файлы на проверку: $CHANGED_FILES"
-          
-          JSON_PAYLOAD=$(jq -n --arg files "$CHANGED_FILES" '{"files": ($files | split(" "))}')
-          
-          echo "Подготовленные данные: $JSON_PAYLOAD"
-          
+          # Создаем временный файл для JSON
+          TEMP_JSON=$(mktemp)
+          echo '{"files":[]}' > "$TEMP_JSON"
+
+          for file in $CHANGED_FILES; do
+            if [ -f "$file" ]; then
+              # Безопасное получение base64 контента
+              CONTENT=$(base64 -w 0 "$file" 2>/dev/null || echo "")
+              
+              # Формируем временный JSON для коммита
+              COMMIT_JSON=$(git log -1 --format='{
+                "hash": "%h",
+                "author": "%an",
+                "date": "%ad",
+                "message": "%s"
+              }' -- "$file" | sed 's/"/\\"/g')
+              
+              # Добавляем информацию о файле во временный JSON
+              jq --arg f "$file" \
+                 --arg c "$CONTENT" \
+                 --arg commit "$COMMIT_JSON" \
+                '.files += [{
+                  "filename": $f,
+                  "content": $c,
+                  "commit": ($commit | fromjson)
+                }]' "$TEMP_JSON" > "${TEMP_JSON}.new" && mv "${TEMP_JSON}.new" "$TEMP_JSON"
+            fi
+          done
+
+          # Отправляем запрос
           RESPONSE=$(curl -s -X POST \
             -H "Content-Type: application/json" \
-            -d "$JSON_PAYLOAD" \
+            -d @"$TEMP_JSON" \
             "$API_URL")
-          
+
+          # Удаляем временный файл
+          rm -f "$TEMP_JSON"
+
           echo "Ответ API: $RESPONSE"
-          
+
           if echo "$RESPONSE" | jq -e '.status == "success"' > /dev/null; then
             echo "Проверка пройдена успешно"
             exit 0

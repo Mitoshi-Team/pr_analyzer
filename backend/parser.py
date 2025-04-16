@@ -13,6 +13,21 @@ class GitHubParser:
 
 
     def get_pr_list(self, owner, repo, state="open"):
+        """
+        Получение списка pull request'ов из репозитория.
+        
+        Args:
+            owner (str): Владелец репозитория.
+            repo (str): Название репозитория.
+            state (str, optional): Состояние PR (open/closed/all). По умолчанию "open".
+            
+        Returns:
+            list: Список pull request'ов.
+            
+        Raises:
+            requests.exceptions.HTTPError: Если произошла ошибка HTTP.
+            Exception: При других ошибках.
+        """
         try:
             url = f"https://api.github.com/repos/{owner}/{repo}/pulls?state={state}"
             response = requests.get(url, headers=self.headers)
@@ -28,6 +43,21 @@ class GitHubParser:
 
 
     def get_pr_diff(self, owner, repo, pr_number):
+        """
+        Получение diff-файла для конкретного pull request'а.
+        
+        Args:
+            owner (str): Владелец репозитория.
+            repo (str): Название репозитория.
+            pr_number (int): Номер pull request'а.
+            
+        Returns:
+            str: Текст diff-файла.
+            
+        Raises:
+            requests.exceptions.HTTPError: Если произошла ошибка HTTP.
+            Exception: При других ошибках.
+        """
         try:
             url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
             diff_headers = self.headers.copy()
@@ -45,6 +75,15 @@ class GitHubParser:
 
 
     def format_code_from_diff(self, diff):
+        """
+        Извлечение кода из diff-файла.
+        
+        Args:
+            diff (str): Текст diff-файла.
+            
+        Returns:
+            str: Форматированный код с удалёнными строками diff-маркировки.
+        """
         lines = diff.splitlines()
         code = []
         for line in lines:
@@ -118,6 +157,19 @@ class GitHubParser:
 
 
     def _parse(self, owner, repo, state, save_to, merged_only=False):
+        """
+        Внутренний метод для парсинга pull request'ов.
+        
+        Args:
+            owner (str): Владелец репозитория.
+            repo (str): Название репозитория.
+            state (str): Состояние PR (open/closed/all).
+            save_to (str): Путь для сохранения данных.
+            merged_only (bool, optional): Фильтр только для объединённых PR. По умолчанию False.
+            
+        Returns:
+            list: Список словарей с данными о pull request'ах.
+        """
         pr_list = self.get_pr_list(owner, repo, state=state)
         parsed_data = []
 
@@ -141,11 +193,21 @@ class GitHubParser:
                 continue
 
         # Если нужно сохранять данные в файл раскоментить
-        # # # self.save_to_json(parsed_data, save_to)
+        # self.save_to_json(parsed_data, save_to)
         return parsed_data
 
 
     def save_to_json(self, data, filename):
+        """
+        Сохранение данных в JSON-файл.
+        
+        Args:
+            data (list): Данные для сохранения.
+            filename (str): Имя файла для сохранения.
+            
+        Raises:
+            Exception: При ошибке сохранения данных.
+        """
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
