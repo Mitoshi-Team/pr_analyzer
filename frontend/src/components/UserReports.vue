@@ -120,18 +120,35 @@ export default {
           email: this.reportForm.email,
           startDate: this.reportForm.startDate,
           endDate: this.reportForm.endDate
+        }, {
+          responseType: 'blob' // Указываем, что ожидаем бинарные данные
         });
         
-        if (response.data.success) {
-          alert('Отчет успешно сформирован!');
-          this.fetchReports(); // Обновляем список отчетов
-          // Сбрасываем форму
-          this.reportForm = {
-            email: '',
-            startDate: '',
-            endDate: ''
-          };
-        }
+        // Создаем объект Blob из ответа
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        
+        // Создаем ссылку для скачивания
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `report_${this.reportForm.email}_${new Date().toISOString().slice(0,10)}.pdf`);
+        document.body.appendChild(link);
+        link.click();
+        
+        // Очищаем
+        window.URL.revokeObjectURL(url);
+        link.remove();
+        
+        // Сбрасываем форму
+        this.reportForm = {
+          email: '',
+          startDate: '',
+          endDate: ''
+        };
+        
+        // Обновляем список отчетов
+        await this.fetchReports();
+        
       } catch (error) {
         console.error('Ошибка при формировании отчета:', error);
         alert('Не удалось сформировать отчет');
@@ -146,13 +163,20 @@ export default {
           responseType: 'blob'
         });
         
-        const url = window.URL.createObjectURL(new Blob([response.data]));
+        // Создаем объект Blob из ответа
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        
+        // Создаем ссылку для скачивания
+        const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        const fileName = `report_${new Date().toISOString().slice(0, 10)}.txt`;
+        const fileName = `report_${new Date().toISOString().slice(0, 10)}.pdf`;
         link.setAttribute('download', fileName);
         document.body.appendChild(link);
         link.click();
+        
+        // Очищаем
+        window.URL.revokeObjectURL(url);
         link.remove();
       } catch (error) {
         console.error('Ошибка при скачивании отчета:', error);
