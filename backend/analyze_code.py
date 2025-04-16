@@ -11,18 +11,10 @@ MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"
 HEADERS = {"Content-Type": "application/json"}
 
 
-OUTPUT_TXT_PATH = "D:/alpha_insurance/backend/output.txt"
 
-def read_input_file(file_path):
-    """
-    Чтение содержимого файла с кодом для анализа.
-    
-    Args:
-        file_path (str): Путь к файлу с исходным кодом.
-        
-    Returns:
-        str или None: Содержимое файла или None в случае ошибки.
-    """
+# Читает содержимое файла с кодом для анализа
+def __read_input_file(file_path):
+   
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read().strip()
@@ -32,44 +24,33 @@ def read_input_file(file_path):
     except Exception as e:
         print(f"Ошибка при чтении файла: {e}")
         return None
-
+ # Отправляет запрос к API для анализа кода.
 def send_request_to_api(prompt):
-    """
-    Отправка запроса к API для анализа кода.
-    
-    Args:
-        prompt (str): Исходный код для анализа.
-        
-    Returns:
-        dict или None: Ответ API в формате JSON или None в случае ошибки.
-    """
-    instruction = """Проанализируй следующий код и предоставь структурированный анализ в следующем формате:
-                    1. СЛОЖНОСТЬ:
-                    - Цикломатическая сложность (McCabe)
-                    - Big O нотация
-                    - Общая оценка сложности (Низкая/Средняя/Высокая)
-
-                    2. ОЦЕНКА КОДА:
-                    - Балл: X/10
-                    - Обоснование оценки
-
-                    3. ПРОБЛЕМЫ:
-                    - Критические проблемы
-                    - Потенциальные исключения
-                    - Уязвимости безопасности
-                    - Логические ошибки
-
-                    4. АНТИПАТТЕРНЫ:
-                    - Список обнаруженных антипаттернов
-                    - Краткое описание каждого антипаттерна
-
-                    5. ПОЛОЖИТЕЛЬНЫЕ МОМЕНТЫ:
-                    - Хорошие практики
-                    - Оптимальные решения
-                    - Правильные паттерны
-
-                    Пожалуйста, дай структурированный ответ на русском языке. Не переписывай анализируемый код.
-                    """
+    instruction = """Проанализируй следующий код или данные и предоставь анализ в JSON формате:
+{
+    "сложность": {
+        "уровень": "S|M|L",
+        "объяснение": "Объяснение оценки сложности"
+    },
+    "оценка_кода": {
+        "балл": 0-10,
+        "объяснение": "Обоснование оценки"
+    },
+    "проблемы": [
+        {
+            "тип": "критическая|предупреждение|информация",
+            "описание": "Описание проблемы"
+        }
+    ],
+    "антипаттерны": [
+        {
+            "название": "Название антипаттерна"
+        }
+    ],
+    "положительные_аспекты": [
+        "Описание положительного аспекта"
+    ]
+}"""
 
     full_prompt = f"{instruction}\n\n```code\n{prompt}\n```"
 
@@ -77,8 +58,7 @@ def send_request_to_api(prompt):
         "model": MODEL,
         "messages": [
             {"role": "user", "content": full_prompt}
-        ],
-       
+        ]
     }
 
     try:
@@ -92,38 +72,45 @@ def send_request_to_api(prompt):
         print(f"Ошибка при отправке запроса: {e}")
         return None
 
-def save_response(response, output_path):
-    """
-    Сохранение результата анализа в файл.
-    
-    Args:
-        response (dict): Ответ API с результатами анализа.
-        output_path (str): Путь для сохранения результатов.
-    """
+def parse_analysis(content):
+    try:
+        # Находим JSON в тексте ответа
+        json_start = content.find('{')
+        json_end = content.rfind('}') + 1
+        if json_start >= 0 and json_end > json_start:
+            json_str = content[json_start:json_end]
+            return json.loads(json_str)
+        return None
+    except json.JSONDecodeError as e:
+        print(f"Ошибка парсинга JSON: {e}")
+        return None
+
+# Сохраняет результат анализа в файл.
+def __save_response(response, output_path):
     try:
         if response and "choices" in response and len(response["choices"]) > 0:
             content = response["choices"][0]["message"]["content"]
-            # Форматируем ответ для лучшей читаемости
-            formatted_content = (
-                "АНАЛИЗ КОДА\n"
-                "===========\n\n"
-                f"{content}"
-            )
+            analysis = parse_analysis(content)
+            
+            if analysis:
+                formatted_content = json.dumps(analysis, indent=2, ensure_ascii=False)
+            else:
+                formatted_content = content
+
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(formatted_content)
             print(f"Ответ сохранён в {output_path}")
+            return analysis
         else:
             print("Нет ответа для сохранения")
+            return None
     except Exception as e:
         print(f"Ошибка при сохранении ответа: {e}")
+        return None
 
-def select_input_file():
-    """
-    Открытие диалогового окна для выбора файла с кодом.
+# Открывает диалоговое окно для выбора файла с кодом.
+def __select_input_file():
     
-    Returns:
-        str или None: Путь к выбранному файлу или None, если файл не выбран.
-    """
     root = tk.Tk()
     root.withdraw()  # Скрываем основное окно
     file_path = filedialog.askopenfilename(
@@ -137,24 +124,19 @@ def select_input_file():
         ]
     )
     return file_path if file_path else None
-
+#  Обрабатывает аргументы командной строки, организует процесс анализа кода и сохранения результатов.
 def main():
-    """
-    Основная функция программы.
-    
-    Обрабатывает аргументы командной строки, организует процесс анализа кода 
-    и сохранения результатов.
-    """
+   
     parser = argparse.ArgumentParser(description="Анализ кода с помощью AI")
     parser.add_argument("--file", "-f", help="Путь к файлу с кодом для анализа")
     args = parser.parse_args()
 
-    input_file = args.file if args.file else select_input_file()
+    input_file = args.file if args.file else __select_input_file()
     if not input_file:
         print("Файл не выбран. Программа завершается.")
         return
 
-    prompt = read_input_file(input_file)
+    prompt = __read_input_file(input_file)
     if prompt is None:
         return
 
@@ -167,15 +149,16 @@ def main():
     if response is None:
         return
     
-    print("Ответ модели:")
-    if "choices" in response and len(response["choices"]) > 0:
-        content = response["choices"][0]["message"]["content"]
-        print(content)
-    else:
-        print("Ответ не содержит данных")
+    analysis = __save_response(response, output_file)
+    if analysis:
+        print("\nРезультаты анализа:")
+        print(f"Сложность: {analysis.get('сложность', {}).get('уровень')}")
+        print(f"Оценка кода: {analysis.get('оценка_кода', {}).get('балл')}/10")
+        print(f"Количество найденных проблем: {len(analysis.get('проблемы', []))}")
+        print(f"Количество антипаттернов: {len(analysis.get('антипаттерны', []))}")
+        print(f"Количество положительных аспектов: {len(analysis.get('положительные_аспекты', []))}")
     
-    save_response(response, output_file)
-    print(f"Анализ сохранен в файл: {output_file}")
+    print(f"\nПолный анализ сохранен в файл: {output_file}")
 
 if __name__ == "__main__":
     main()
