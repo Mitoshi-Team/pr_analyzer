@@ -281,6 +281,15 @@ class GitHubParser:
         
         prs_data = self.parse_prs(owner, repo, start_date, end_date, author_email)
         
+        # Проверяем есть ли PR
+        if not prs_data:
+            print(f"Предупреждение: PR не найдены для репозитория {owner}/{repo}")
+            if author_email:
+                print(f"с email: {author_email}")
+            if start_date or end_date:
+                print(f"за период: {start_date or 'начало'} - {end_date or 'конец'}")
+            return None
+        
         # Используем относительный путь вместо хардкода
         base_dir = os.path.dirname(__file__)
         # Создаем директорию для анализов если её нет
@@ -309,10 +318,15 @@ class GitHubParser:
                 print(f"Файл анализа не найден для PR #{pr['id_pr']}")
                 continue
 
+        # Проверяем есть ли данные для анализа
+        if not prs_analysis_data:
+            print("Предупреждение: Нет данных для анализа PR")
+            return None
+
         # Отправляем собранные данные на финальный анализ
         final_report = self.generate_final_report(prs_analysis_data)
         
-        if save_to:
+        if final_report and save_to:
             self.save_to_json(final_report, save_to_path)
             # Создаем полный отчет после сохранения основного анализа
             self.create_full_report(final_report, prs_data, prs_analysis_data, save_to_path)
@@ -343,12 +357,12 @@ class GitHubParser:
     def generate_final_report(self, prs_analysis_data):
         instruction = """Проанализируй данные по всем PR и создай итоговый отчет в следующем формате. 
         {
-            "общая_оценка": число,
-            "повторяющиеся_проблемы": [
-                {"проблема": "общее описание проблемы, do not specify the name of methods, classes, files, etc."},
+            "overall_score": number,
+            "recurring_issues": [
+                {"issue": "общее описание проблемы, do not specify the name of methods, classes, files, etc."},
             ],
-            "антипаттерны": [
-                {"название": "название антипаттерна и его общее описание"}
+            "antipatterns": [
+                {"name": "название антипаттерна и его общее описание"}
             ]
         }"""
         
@@ -372,4 +386,4 @@ class GitHubParser:
 parser = GitHubParser()
 # Передаем параметры для фильтрации PR по дате и автору
 # https://github.com/microsoft/vscode-extension-samples
-results = parser.analyze_all_prs("microsoft", "vscode-extension-samples", start_date="2023-01-01", end_date="2025-12-31", author_email="mrljtster@gmail.com", save_to="analysis_report.json")
+results = parser.analyze_all_prs("microsoft", "vscode-extension-samples", start_date=None, end_date=None, author_email="mrljtster@gmail.com", save_to="analysis_report.json")

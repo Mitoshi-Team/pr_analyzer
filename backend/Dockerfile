@@ -1,6 +1,11 @@
 # Используем официальный образ Python 3.11.9
 FROM python:3.11.9-slim
 
+# Устанавливаем необходимые пакеты
+RUN apt-get update && apt-get install -y \
+    python3-tk \
+    && rm -rf /var/lib/apt/lists/*
+
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
