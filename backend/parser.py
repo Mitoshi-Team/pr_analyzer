@@ -115,7 +115,7 @@ class GitHubParser:
         import os
         
         # Создаем директорию для анализов если её нет
-        analysis_dir = "D:\\alpha_insurance\\backend\\pr_analysis"
+        analysis_dir = "D:\\alpha_insurance\\backend\\pr_files"
         os.makedirs(analysis_dir, exist_ok=True)
         
         pr_list = self.get_pr_list(owner, repo, state="open")
@@ -226,7 +226,7 @@ class GitHubParser:
         # Собираем данные по всем PR для отправки в ИИ
         prs_analysis_data = []
         
-        analysis_dir = "D:\\alpha_insurance\\backend\\pr_analysis"
+        analysis_dir = "D:\\alpha_insurance\\backend\\pr_files"
         for pr in prs_data:
             analysis_file = os.path.join(analysis_dir, f"pr_{pr['id_pr']}_analysis.json")
             try:
@@ -261,13 +261,13 @@ class GitHubParser:
         }
         
         # Собираем детальный анализ по каждому PR
-        for pr_analysis in prs_analysis_data:
-            pr_id = pr_analysis['pr_info']['id']
+        for pr_files in prs_analysis_data:
+            pr_id = pr_files['pr_info']['id']
             # Находим соответствующие данные PR
             pr_data = next((pr for pr in prs_data if pr['id_pr'] == pr_id), None)
             if pr_data:
-                pr_analysis['pr_info']['commits'] = pr_data['commits']
-                full_report["детальный_анализ"].append(pr_analysis)
+                pr_files['pr_info']['commits'] = pr_data['commits']
+                full_report["детальный_анализ"].append(pr_files)
         
         # Сохраняем полный отчет
         full_report_path = analysis_report_path.replace('.json', '_full.json')
