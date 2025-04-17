@@ -5,12 +5,33 @@
     <!-- Форма для создания отчета -->
     <div class="report-form">
       <div class="form-group">
-        <label for="email">Email пользователя</label>
+        <label for="repoLinks">Ссылки на репозитории</label>
+        <div class="repo-input-container">
+          <input 
+            type="text" 
+            id="repoLink" 
+            v-model="newRepoLink" 
+            placeholder="https://github.com/owner/repo"
+            class="form-control"
+            @keyup.enter="addRepoLink"
+          >
+          <button @click="addRepoLink" class="add-repo-btn">Добавить</button>
+        </div>
+        <div class="repo-links-list" v-if="reportForm.repoLinks.length > 0">
+          <div v-for="(link, index) in reportForm.repoLinks" :key="index" class="repo-link-item">
+            <span>{{ link }}</span>
+            <button @click="removeRepoLink(index)" class="remove-link-btn">×</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="form-group">
+        <label for="login">Логин пользователя</label>
         <input 
-          type="email" 
-          id="email" 
-          v-model="reportForm.email" 
-          placeholder="Введите email пользователя"
+          type="text" 
+          id="login" 
+          v-model="reportForm.login" 
+          placeholder="Введите логин пользователя"
           class="form-control"
         >
       </div>
@@ -82,10 +103,12 @@ export default {
   data() {
     return {
       reportForm: {
-        email: '',
+        login: '',
+        repoLinks: [],
         startDate: '',
         endDate: ''
       },
+      newRepoLink: '',
       reports: [],
       loading: false,
       error: null
@@ -95,29 +118,46 @@ export default {
     this.fetchReports();
   },
   methods: {
+    addRepoLink() {
+      if (this.newRepoLink && this.newRepoLink.trim()) {
+        if (!this.reportForm.repoLinks.includes(this.newRepoLink.trim())) {
+          this.reportForm.repoLinks.push(this.newRepoLink.trim());
+        }
+        this.newRepoLink = '';
+      }
+    },
+    removeRepoLink(index) {
+      this.reportForm.repoLinks.splice(index, 1);
+    },
+    
     async fetchReports() {
       this.loading = true;
       try {
+        console.log("Запрашиваем список отчетов");
         const response = await axios.get('/api/reports');
+        console.log("Получены отчеты:", response.data);
         this.reports = response.data;
-        this.loading = false;
       } catch (error) {
         console.error('Ошибка при получении отчетов:', error);
         this.error = 'Не удалось загрузить отчеты';
+      } finally {
         this.loading = false;
       }
     },
     
     async generateReport() {
-      if (!this.reportForm.email || !this.reportForm.startDate || !this.reportForm.endDate) {
-        alert('Пожалуйста, заполните все поля формы');
+      if (!this.reportForm.login || !this.reportForm.startDate || !this.reportForm.endDate || this.reportForm.repoLinks.length === 0) {
+        alert('Пожалуйста, заполните все поля формы и добавьте хотя бы одну ссылку на репозиторий');
         return;
       }
       
       this.loading = true;
       try {
+        console.log("Отправка запроса на генерацию отчета", this.reportForm);
         const response = await axios.post('/api/reports/generate', {
-          email: this.reportForm.email,
+          email: this.reportForm.login, // оставляем поле email для обратной совместимости
+          login: this.reportForm.login,
+          repoLinks: this.reportForm.repoLinks,
           startDate: this.reportForm.startDate,
           endDate: this.reportForm.endDate
         }, {
@@ -131,7 +171,7 @@ export default {
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', `report_${this.reportForm.email}_${new Date().toISOString().slice(0,10)}.pdf`);
+        link.setAttribute('download', `report_${this.reportForm.login}_${new Date().toISOString().slice(0,10)}.pdf`);
         document.body.appendChild(link);
         link.click();
         
@@ -141,13 +181,20 @@ export default {
         
         // Сбрасываем форму
         this.reportForm = {
-          email: '',
+          login: '',
+          repoLinks: [],
           startDate: '',
           endDate: ''
         };
+        this.newRepoLink = '';
         
-        // Обновляем список отчетов
-        await this.fetchReports();
+        // Небольшая задержка перед обновлением списка отчетов,
+        // чтобы дать время базе данных завершить транзакцию
+        console.log("Ожидаем завершения операции в БД...");
+        setTimeout(async () => {
+          console.log("Обновляем список отчетов после генерации");
+          await this.fetchReports();
+        }, 1000);
         
       } catch (error) {
         console.error('Ошибка при формировании отчета:', error);
@@ -332,5 +379,63 @@ label {
   text-align: center;
   color: #888;
   padding: 30px 0;
+}
+
+.repo-input-container {
+  display: flex;
+  gap: 10px;
+}
+
+.add-repo-btn {
+  padding: 10px 15px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.add-repo-btn:hover {
+  background-color: #45a049;
+}
+
+.repo-links-list {
+  margin-top: 10px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 5px;
+}
+
+.repo-link-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background-color: #f5f5f5;
+  margin-bottom: 5px;
+  border-radius: 4px;
+}
+
+.remove-link-btn {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-link-btn:hover {
+  background-color: #d32f2f;
 }
 </style>

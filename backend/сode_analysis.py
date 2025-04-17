@@ -6,11 +6,17 @@ import argparse
 import tkinter as tk
 from tkinter import filedialog
 
-API_URL = "http://localhost:8020/v1/chat/completions"
-MODEL = "Qwen/Qwen2.5-Coder-7B-Instruct-AWQ"
+# Исправляем URL для обращения к API на правильный порт из docker-compose
+API_URL = "http://vllm:8000/v1/chat/completions"  # внутри контейнера используем сетевое имя
+API_URL_EXTERNAL = "http://localhost:8020/v1/chat/completions"  # для локальных тестов вне контейнера
+
+MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ"
 HEADERS = {"Content-Type": "application/json"}
 
-
+# Максимальное количество попыток отправки запроса
+MAX_RETRIES = 3
+# Время ожидания между попытками (в секундах)
+RETRY_DELAY = 2
 
 # Читает содержимое файла с кодом для анализа
 def __read_input_file(file_path):
@@ -24,7 +30,8 @@ def __read_input_file(file_path):
     except Exception as e:
         print(f"Ошибка при чтении файла: {e}")
         return None
- # Отправляет запрос к API для анализа кода.
+
+# Отправляет запрос к API для анализа кода.
 def send_request_to_api(prompt):
     instruction = """Проанализируй следующий код или данные и предоставь анализ в JSON формате:
 {
@@ -52,6 +59,12 @@ def send_request_to_api(prompt):
     ]
 }"""
 
+    # Ограничиваем размер промпта, чтобы избежать превышения токенов (приблизительно)
+    max_prompt_chars = 20000  # Примерное ограничение на символы для безопасности
+    if len(prompt) > max_prompt_chars:
+        print(f"Предупреждение: запрос слишком длинный ({len(prompt)} символов), сокращаем до {max_prompt_chars}")
+        prompt = prompt[:max_prompt_chars] + "\n...[контент обрезан из-за превышения максимальной длины]"
+
     full_prompt = f"{instruction}\n\n```code\n{prompt}\n```"
 
     payload = {
@@ -61,16 +74,31 @@ def send_request_to_api(prompt):
         ]
     }
 
-    try:
-        start_time = time.time()
-        response = requests.post(API_URL, headers=HEADERS, data=json.dumps(payload))
-        response.raise_for_status()
-        end_time = time.time()
-        print(f"Запрос выполнен за {end_time - start_time:.2f} секунд")
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка при отправке запроса: {e}")
-        return None
+    # Используем повторные попытки при ошибках подключения
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            start_time = time.time()
+            print(f"Отправка запроса к API ({retries+1}/{MAX_RETRIES})...")
+            response = requests.post(API_URL, headers=HEADERS, data=json.dumps(payload), timeout=120)
+            response.raise_for_status()
+            end_time = time.time()
+            print(f"Запрос выполнен за {end_time - start_time:.2f} секунд")
+            return response.json()
+        except requests.exceptions.ConnectionError as e:
+            retries += 1
+            print(f"Ошибка подключения ({retries}/{MAX_RETRIES}): {e}")
+            if retries < MAX_RETRIES:
+                print(f"Повторная попытка через {RETRY_DELAY} сек...")
+                time.sleep(RETRY_DELAY)
+            else:
+                print("Все попытки подключения исчерпаны.")
+                # Возвращаем пустой результат вместо None, чтобы не вызывать ошибки при обработке
+                return {"choices": [{"message": {"content": "{}"}}]}
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка при отправке запроса: {e}")
+            # Возвращаем пустой результат вместо None
+            return {"choices": [{"message": {"content": "{}"}}]}
 
 def parse_analysis(content):
     try:
