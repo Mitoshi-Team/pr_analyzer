@@ -4,11 +4,18 @@ import json
 import sys
 from сode_analysis import send_request_to_api, parse_analysis
 import os
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из файла .env
+load_dotenv()
 
 
 class GitHubParser:
-    def __init__(self, token='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'):
+    def __init__(self, token=None):
         self.headers = {"Accept": "application/vnd.github.v3+json"}
+        # Используем токен из переменных окружения, если не передан явно
+        if token is None:
+            token = os.getenv("GITHUB_TOKEN")
         if token:
             self.headers["Authorization"] = f"token {token}"
 
@@ -276,60 +283,112 @@ class GitHubParser:
             raise e
 
 
-    def analyze_all_prs(self, owner, repo, start_date=None, end_date=None, author_email=None, save_to="analysis_report.json"):
+    def analyze_all_prs(self, repo_links, start_date=None, end_date=None, author_login=None, save_to="analysis_report.json"):
+        """
+        Получение и анализ pull request'ов из нескольких репозиториев за указанный период времени для указанного автора.
+        
+        Args:
+            repo_links (list): Список ссылок на репозитории в формате 'https://github.com/owner/repo'.
+            start_date (str, optional): Начальная дата периода в формате "YYYY-MM-DD". По умолчанию None (без ограничения).
+            end_date (str, optional): Конечная дата периода в формате "YYYY-MM-DD". По умолчанию None (без ограничения).
+            author_login (str, optional): Логин автора PR на GitHub для фильтрации. По умолчанию None (все авторы).
+            save_to (str, optional): Путь для сохранения данных. По умолчанию "analysis_report.json".
+            
+        Returns:
+            dict: Сводный анализ по всем репозиториям, или None если PR не найдены.
+        """
         import os
+        import re
         
-        prs_data = self.parse_prs(owner, repo, start_date, end_date, author_email)
-        
-        # Проверяем есть ли PR
-        if not prs_data:
-            print(f"Предупреждение: PR не найдены для репозитория {owner}/{repo}")
-            if author_email:
-                print(f"с email: {author_email}")
-            if start_date or end_date:
-                print(f"за период: {start_date or 'начало'} - {end_date or 'конец'}")
+        # Проверяем, что передан список ссылок
+        if not repo_links:
+            print("Ошибка: Не указаны ссылки на репозитории.")
             return None
         
-        # Используем относительный путь вместо хардкода
-        base_dir = os.path.dirname(__file__)
+        # Если передана одна ссылка как строка, преобразуем в список
+        if isinstance(repo_links, str):
+            repo_links = [repo_links]
+        
         # Создаем директорию для анализов если её нет
+        base_dir = os.path.dirname(__file__)
         analysis_dir = os.path.join(base_dir, "pr_files")
         os.makedirs(analysis_dir, exist_ok=True)
         
+        all_prs_data = []
+        all_prs_analysis_data = []
+        
+        # Паттерн для извлечения owner/repo из ссылки GitHub
+        github_pattern = r"https://github\.com/([^/]+)/([^/]+)"
+        
+        # Обрабатываем каждый репозиторий
+        for repo_link in repo_links:
+            # Извлекаем owner и repo из ссылки
+            match = re.match(github_pattern, repo_link)
+            if not match:
+                print(f"Неправильный формат ссылки на репозиторий: {repo_link}")
+                continue
+                
+            owner, repo = match.groups()
+            
+            print(f"Анализ репозитория: {owner}/{repo}")
+            
+            # Получаем PR данные
+            prs_data = self.parse_prs(owner, repo, start_date, end_date, None)
+            
+            # Если указан автор, фильтруем PR по логину автора
+            if author_login and prs_data:
+                prs_data = [pr for pr in prs_data if pr["author"].lower() == author_login.lower()]
+            
+            # Проверяем есть ли PR
+            if not prs_data:
+                print(f"Предупреждение: PR не найдены для репозитория {owner}/{repo}")
+                if author_login:
+                    print(f"с логином: {author_login}")
+                if start_date or end_date:
+                    print(f"за период: {start_date or 'начало'} - {end_date or 'конец'}")
+                continue
+            
+            # Выводим список полученных PR
+            print(f"\nСписок полученных PR для репозитория {owner}/{repo}:")
+            for i, pr in enumerate(prs_data, 1):
+                print(f"{i}. PR #{pr['id_pr']} от {pr['created_at']} - Автор: {pr['author']} - {pr['link']}")
+            print(f"Всего получено PR: {len(prs_data)}\n")
+            
+            all_prs_data.extend(prs_data)
+            
+            # Собираем данные по всем PR текущего репозитория для отправки в ИИ
+            for pr in prs_data:
+                analysis_file = os.path.join(analysis_dir, f"pr_{pr['id_pr']}_analysis.json")
+                try:
+                    with open(analysis_file, 'r', encoding='utf-8') as f:
+                        analysis = json.load(f)
+                        analysis['pr_info'] = {
+                            'id': pr['id_pr'],
+                            'author': pr['author'],
+                            'link': pr['link'],
+                            'created_at': pr['created_at'],
+                            'repository': f"{owner}/{repo}"
+                        }
+                        all_prs_analysis_data.append(analysis)
+                except FileNotFoundError:
+                    print(f"Файл анализа не найден для PR #{pr['id_pr']}")
+                    continue
+        
+        # Проверяем есть ли данные для анализа
+        if not all_prs_analysis_data:
+            print("Предупреждение: Нет данных для анализа PR во всех указанных репозиториях")
+            return None
+            
         # Сохраняем отчет в папке pr_files
         save_to_path = os.path.join(analysis_dir, save_to)
         
-        # Собираем данные по всем PR для отправки в ИИ
-        prs_analysis_data = []
-        
-        for pr in prs_data:
-            analysis_file = os.path.join(analysis_dir, f"pr_{pr['id_pr']}_analysis.json")
-            try:
-                with open(analysis_file, 'r', encoding='utf-8') as f:
-                    analysis = json.load(f)
-                    analysis['pr_info'] = {
-                        'id': pr['id_pr'],
-                        'author': pr['author'],
-                        'link': pr['link'],
-                        'created_at': pr['created_at']
-                    }
-                    prs_analysis_data.append(analysis)
-            except FileNotFoundError:
-                print(f"Файл анализа не найден для PR #{pr['id_pr']}")
-                continue
-
-        # Проверяем есть ли данные для анализа
-        if not prs_analysis_data:
-            print("Предупреждение: Нет данных для анализа PR")
-            return None
-
         # Отправляем собранные данные на финальный анализ
-        final_report = self.generate_final_report(prs_analysis_data)
+        final_report = self.generate_final_report(all_prs_analysis_data)
         
         if final_report and save_to:
             self.save_to_json(final_report, save_to_path)
             # Создаем полный отчет после сохранения основного анализа
-            self.create_full_report(final_report, prs_data, prs_analysis_data, save_to_path)
+            self.create_full_report(final_report, all_prs_data, all_prs_analysis_data, save_to_path)
         
         return final_report
 
@@ -386,4 +445,4 @@ class GitHubParser:
 parser = GitHubParser()
 # Передаем параметры для фильтрации PR по дате и автору
 # https://github.com/microsoft/vscode-extension-samples
-results = parser.analyze_all_prs("microsoft", "vscode-extension-samples", start_date=None, end_date=None, author_email="mrljtster@gmail.com", save_to="analysis_report.json")
+results = parser.analyze_all_prs(["https://github.com/microsoft/vscode-extension-samples"], start_date=None, end_date=None, author_login="mrljtster", save_to="analysis_report.json")
