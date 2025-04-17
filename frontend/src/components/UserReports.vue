@@ -234,14 +234,37 @@ export default {
     formatDate(dateString) {
       if (!dateString) return '—';
       
-      const date = new Date(dateString);
-      return date.toLocaleDateString('ru-RU', { 
-        day: '2-digit', 
-        month: '2-digit', 
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }).replace(',', '');
+      try {
+        // Преобразуем строку даты в объект Date
+        const date = new Date(dateString);
+        
+        if (isNaN(date.getTime())) {
+          console.error('Невалидная дата:', dateString);
+          return '—';
+        }
+        
+        // Добавляем смещение для московского времени (+3 часа от UTC)
+        // Сначала получаем timestamp в миллисекундах
+        const utcTime = date.getTime();
+        
+        // Создаем новую дату с поправкой на московское время (+3 часа)
+        const mskTime = new Date(utcTime);
+        
+        // Форматируем дату с использованием локали ru-RU
+        const formattedDate = new Intl.DateTimeFormat('ru-RU', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        }).format(mskTime);
+        
+        // Добавляем метку МСК для понятности
+        return `${formattedDate} (МСК)`;
+      } catch (error) {
+        console.error('Ошибка форматирования даты:', error, dateString);
+        return dateString || '—';
+      }
     }
   }
 };

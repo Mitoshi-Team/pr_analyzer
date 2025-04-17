@@ -10,16 +10,13 @@ from dotenv import load_dotenv
 # Загружаем переменные из .env файла
 load_dotenv()
 
-# Исправляем URL для обращения к API на правильный порт из docker-compose
-API_URL = "http://vllm:8000/v1/chat/completions"  # внутри контейнера используем сетевое имя
+API_URL = os.getenv("API_URL") 
 
 # Получаем название модели из .env
 MODEL = os.getenv("MODEL_NAME")
 HEADERS = {"Content-Type": "application/json"}
 
-# Максимальное количество попыток отправки запроса
 MAX_RETRIES = 3
-# Время ожидания между попытками (в секундах)
 RETRY_DELAY = 2
 
 # Читает содержимое файла с кодом для анализа

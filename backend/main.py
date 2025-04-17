@@ -16,7 +16,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.platypus.flowables import Flowable
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 from reportlab.lib.units import mm, cm
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import io
 from typing import List, Optional
 from datetime import datetime
@@ -27,6 +27,13 @@ import json
 import textwrap
 from pydantic import BaseModel
 from parser import GitHubParser
+
+# Определяем московскую временную зону (UTC+3)
+MSK_TIMEZONE = timezone(timedelta(hours=3))
+
+def get_moscow_time():
+    """Возвращает текущее время в московской временной зоне"""
+    return datetime.now(MSK_TIMEZONE)
 
 """
 Задаем шрифт с поддержкой кирилицы
@@ -303,7 +310,7 @@ async def generate_report(report_req: ReportRequest):
         elements.append(Spacer(1, 10*mm))
         elements.append(Paragraph(f"<b>Логин пользователя:</b> {report_req.login}", styles['NormalText']))
         elements.append(Paragraph(f"<b>Период анализа:</b> с {report_req.startDate} по {report_req.endDate}", styles['NormalText']))
-        elements.append(Paragraph(f"<b>Дата формирования:</b> {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}", styles['NormalText']))
+        elements.append(Paragraph(f"<b>Дата формирования:</b> {get_moscow_time().strftime('%d.%m.%Y %H:%M:%S (МСК)')}", styles['NormalText']))
         elements.append(Spacer(1, 5*mm))
         
         # Список репозиториев
@@ -532,14 +539,15 @@ async def generate_report(report_req: ReportRequest):
                     print("Таблица code_review_reports создана успешно")
                 
                 # Сохраняем отчет
-                print(f"Сохраняем отчет в БД для email: {report_req.email}, ID: {report_id}")
+                print(f"Сохраняем отчет в БД для логина: {report_req.login}, ID: {report_id}")
                 result = await session.execute(text("""
                     INSERT INTO code_review_reports (id, email, creation_date, file_data)
-                    VALUES (:id, :email, CURRENT_TIMESTAMP, :file_data)
+                    VALUES (:id, :email, :creation_date, :file_data)
                     RETURNING id
                 """), {
                     "id": report_id,
                     "email": report_req.login,
+                    "creation_date": get_moscow_time(),
                     "file_data": pdf_data
                 })
                 inserted_id = result.scalar()
@@ -629,24 +637,32 @@ async def get_reports():
                 print("Таблица code_review_reports не существует при запросе отчетов")
                 return []
             
+            # Правильный запрос для работы с timestamp
+            # Используем более прямой подход без преобразования часовых поясов
             result = await session.execute(text("""
                 SELECT id, email, creation_date
                 FROM code_review_reports
-                ORDER BY creation_date DESC
+                ORDER BY creation_date ASC
             """))
             
             reports = []
             for row in result:
+                # Если время уже хранится в timestamp с часовым поясом, просто форматируем его
+                if row[2]:
+                    creation_date = row[2].isoformat()
+                    print(f"Отчет ID: {row[0]}, время создания: {creation_date}")
+                else:
+                    creation_date = None
+                    
                 reports.append({
                     "id": row[0],
                     "email": row[1],
-                    "created_at": row[2].isoformat() if row[2] else None
+                    "created_at": creation_date
                 })
             
             print(f"Получено отчетов: {len(reports)}")
             return reports
     except Exception as e:
-        print(f"Ошибка при получении списка отчетов: {str(e)}")
         print(f"Ошибка при получении списка отчетов: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении списка отчетов: {str(e)}")
 
@@ -665,10 +681,13 @@ async def download_report(report_id: str):
         HTTPException: Если отчет не найден или произошла ошибка при скачивании.
     """
     try:
+        # Преобразуем строковый ID в целое число
+        report_id_int = int(report_id)
+        
         async with async_session() as session:
             result = await session.execute(text("""
                 SELECT file_data, email FROM code_review_reports WHERE id = :report_id
-            """), {"report_id": report_id})
+            """), {"report_id": report_id_int})
             
             row = result.first()
             if not row:
@@ -685,6 +704,8 @@ async def download_report(report_id: str):
                     "Content-Disposition": f"attachment; filename=report_{email}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
                 }
             )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Некорректный формат ID отчета")
     except HTTPException:
         raise
     except Exception as e:
