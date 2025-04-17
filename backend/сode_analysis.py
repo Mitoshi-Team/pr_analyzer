@@ -8,7 +8,6 @@ from tkinter import filedialog
 
 # Исправляем URL для обращения к API на правильный порт из docker-compose
 API_URL = "http://vllm:8000/v1/chat/completions"  # внутри контейнера используем сетевое имя
-API_URL_EXTERNAL = "http://localhost:8020/v1/chat/completions"  # для локальных тестов вне контейнера
 
 MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ"
 HEADERS = {"Content-Type": "application/json"}
