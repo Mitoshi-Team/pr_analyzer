@@ -9,6 +9,13 @@ from reportlab.pdfbase.ttfonts import TTFont
 from fastapi.responses import StreamingResponse
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import Paragraph, Spacer, PageBreak
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.platypus.flowables import Flowable
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from reportlab.lib.units import mm, cm
 from datetime import datetime
 import io
 from typing import List, Optional
@@ -17,6 +24,7 @@ import os
 import base64
 import uuid
 import json
+import textwrap
 from pydantic import BaseModel
 from parser import GitHubParser
 
@@ -24,15 +32,15 @@ from parser import GitHubParser
 Задаем шрифт с поддержкой кирилицы
 """
 pdfmetrics.registerFont(TTFont('DejaVuSans', 'fonts/DejaVuSans.ttf'))
+pdfmetrics.registerFont(TTFont('DejaVuSans-Bold', 'fonts/DejaVuSans.ttf'))
 
 # Модель данных для отчета
 class ReportRequest(BaseModel):
     """
     Модель запроса на создание отчета.
     """
-    email: str  # Оставляем для обратной совместимости
-    login: Optional[str] = None
-    repoLinks: Optional[List[str]] = None
+    login: str
+    repoLinks: List[str]
     startDate: str
     endDate: str
 
@@ -154,138 +162,348 @@ def pars_pr(token, owner, repo, state, start_date=None, end_date=None, author_em
 @app.post("/reports/generate")
 async def generate_report(report_req: ReportRequest):
     try:
-        # Получаем логин пользователя из запроса или используем email
-        login = report_req.login or report_req.email
+        # Получаем и анализируем данные из репозиториев
+        parser = GitHubParser()
+        print(f"Начинаем анализ PR для пользователя: {report_req.login}")
+        print(f"Репозитории: {report_req.repoLinks}")
+        print(f"Период: {report_req.startDate} - {report_req.endDate}")
         
-        # Если переданы ссылки на репозитории, запускаем анализ
-        if report_req.repoLinks:
-            try:
-                # Создаем парсер GitHub
-                parser = GitHubParser()
-                
-                # Запускаем анализ всех PR
-                analysis_results = parser.analyze_all_prs(
-                    repo_links=report_req.repoLinks,
-                    start_date=report_req.startDate,
-                    end_date=report_req.endDate,
-                    author_login=login,
-                    save_to="analysis_report.json"
-                )
-                
-                if not analysis_results:
-                    print(f"Предупреждение: Не найдены PR для анализа для пользователя {login}")
-            except Exception as e:
-                print(f"Ошибка при анализе репозиториев: {str(e)}")
+        analysis_results = parser.analyze_all_prs(
+            report_req.repoLinks,
+            start_date=report_req.startDate,
+            end_date=report_req.endDate,
+            author_login=report_req.login,
+            save_to="analysis_report.json"
+        )
         
+        # Проверяем, получен ли результат анализа
+        if not analysis_results:
+            print("Предупреждение: анализатор не вернул результаты для PR")
+            
         # Создаем буфер для PDF
         buffer = io.BytesIO()
-        c = canvas.Canvas(buffer, pagesize=A4)
-        c.setFont('DejaVuSans', 12)
-        width, height = A4
-
-        y = height - 50
-        line_height = 15
-
-        def write_line(text, indent=0):
-            nonlocal y
-            c.drawString(50 + indent * 20, y, text)
-            y -= line_height
-            if y < 50:
-                c.showPage()
-                c.setFont('DejaVuSans', 12)
-                y = height - 50
-
+        doc = SimpleDocTemplate(buffer, pagesize=A4,
+                               rightMargin=20*mm, leftMargin=20*mm,
+                               topMargin=20*mm, bottomMargin=20*mm)
+        
+        # Создаем стили для текста
+        styles = getSampleStyleSheet()
+        
+        # Модифицируем существующие стили вместо добавления новых с теми же именами
+        styles['Title'].fontName = 'DejaVuSans-Bold'
+        styles['Title'].fontSize = 16
+        styles['Title'].alignment = TA_CENTER
+        styles['Title'].spaceAfter = 6*mm
+        
+        # Модифицируем Heading1 если он существует, иначе добавляем
+        if 'Heading1' in styles:
+            styles['Heading1'].fontName = 'DejaVuSans-Bold'
+            styles['Heading1'].fontSize = 14
+            styles['Heading1'].spaceAfter = 3*mm
+            styles['Heading1'].spaceBefore = 6*mm
+        else:
+            styles.add(ParagraphStyle(name='Heading1', 
+                                     fontName='DejaVuSans-Bold', 
+                                     fontSize=14, 
+                                     spaceAfter=3*mm,
+                                     spaceBefore=6*mm))
+        
+        # Модифицируем Heading2 если он существует, иначе добавляем
+        if 'Heading2' in styles:
+            styles['Heading2'].fontName = 'DejaVuSans-Bold'
+            styles['Heading2'].fontSize = 12
+            styles['Heading2'].spaceAfter = 2*mm
+            styles['Heading2'].spaceBefore = 4*mm
+            styles['Heading2'].leftIndent = 5*mm
+        else:
+            styles.add(ParagraphStyle(name='Heading2', 
+                                     fontName='DejaVuSans-Bold', 
+                                     fontSize=12, 
+                                     spaceAfter=2*mm,
+                                     spaceBefore=4*mm,
+                                     leftIndent=5*mm))
+        
+        # Добавляем собственные стили с уникальными именами (не встроенными в ReportLab)
+        styles.add(ParagraphStyle(name='NormalText', 
+                                 fontName='DejaVuSans', 
+                                 fontSize=10,
+                                 spaceAfter=1*mm,
+                                 textColor=colors.black))
+        
+        styles.add(ParagraphStyle(name='List', 
+                                 fontName='DejaVuSans', 
+                                 fontSize=10,
+                                 leftIndent=10*mm,
+                                 spaceAfter=1*mm))
+        
+        styles.add(ParagraphStyle(name='SubList', 
+                                 fontName='DejaVuSans', 
+                                 fontSize=10,
+                                 leftIndent=20*mm,
+                                 spaceAfter=1*mm))
+        
+        styles.add(ParagraphStyle(name='StatusOpen', 
+                                 fontName='DejaVuSans-Bold', 
+                                 fontSize=10,
+                                 textColor=colors.blue))
+        
+        styles.add(ParagraphStyle(name='StatusMerged', 
+                                 fontName='DejaVuSans-Bold', 
+                                 fontSize=10,
+                                 textColor=colors.green))
+        
+        styles.add(ParagraphStyle(name='StatusRejected', 
+                                 fontName='DejaVuSans-Bold', 
+                                 fontSize=10,
+                                 textColor=colors.red))
+        
+        # Создаем список элементов документа
+        elements = []
+        
+        # Функция для добавления горизонтальной линии
+        class HorizontalLine(Flowable):
+            def __init__(self, width, color=colors.black, thickness=1):
+                Flowable.__init__(self)
+                self.width = width
+                self.color = color
+                self.thickness = thickness
+        
+            def draw(self):
+                self.canv.setStrokeColor(self.color)
+                self.canv.setLineWidth(self.thickness)
+                self.canv.line(0, 0, self.width, 0)
+        
+        # Вспомогательная функция для разбиения длинных строк
+        def wrap_text(text, max_width=80):
+            return "<br/>".join(textwrap.wrap(text, max_width))
+        
+        # Функция для получения стиля в зависимости от статуса PR
+        def get_status_style(status):
+            if status == "open":
+                return styles['StatusOpen']
+            elif status == "merged":
+                return styles['StatusMerged']
+            elif status == "rejected":
+                return styles['StatusRejected']
+            else:
+                return styles['NormalText']
+        
         # Получаем данные из анализа PR
         analysis_file = os.path.join(os.path.dirname(__file__), "pr_files", "analysis_report_full.json")
         try:
             with open(analysis_file, 'r', encoding='utf-8') as f:
                 analysis_results = json.load(f)
+                print(f"Успешно загружен файл анализа: {analysis_file}")
         except Exception as e:
             print(f"Ошибка при чтении файла анализа: {str(e)}")
             analysis_results = None
-
-        # Генерация отчета
-        write_line(f"Отчет об оценке качества кода для {login}")
-        write_line(f"Период: с {report_req.startDate} по {report_req.endDate}")
         
-        # Добавим информацию о репозиториях
-        if report_req.repoLinks:
-            write_line("Проанализированные репозитории:")
-            for link in report_req.repoLinks:
-                write_line(f"- {link}", 1)
-                
-        write_line(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        write_line("")
-
+        # Добавляем титульную страницу
+        elements.append(Paragraph(f"Отчет об оценке качества кода", styles['Title']))
+        elements.append(Spacer(1, 10*mm))
+        elements.append(Paragraph(f"<b>Логин пользователя:</b> {report_req.login}", styles['NormalText']))
+        elements.append(Paragraph(f"<b>Период анализа:</b> с {report_req.startDate} по {report_req.endDate}", styles['NormalText']))
+        elements.append(Paragraph(f"<b>Дата формирования:</b> {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}", styles['NormalText']))
+        elements.append(Spacer(1, 5*mm))
+        
+        # Список репозиториев
+        elements.append(Paragraph("<b>Репозитории:</b>", styles['NormalText']))
+        for repo_link in report_req.repoLinks:
+            elements.append(Paragraph(f"- {repo_link}", styles['List']))
+        
+        elements.append(Spacer(1, 10*mm))
+        elements.append(HorizontalLine(450, colors.darkgrey, 2))
+        elements.append(PageBreak())
+        
+        # Определяем содержимое отчета
         if analysis_results and "общий_анализ" in analysis_results:
             общий_анализ = analysis_results["общий_анализ"]
             
-            write_line(f"Общая оценка кода: {общий_анализ.get('overall_score', 'Н/Д')}")
-            
-            if общий_анализ.get("recurring_issues"):
-                write_line("")
-                write_line("Повторяющиеся проблемы:")
-                for issue in общий_анализ["recurring_issues"]:
-                    write_line(f"- {issue['issue']}", 1)
-
-            if общий_анализ.get("antipatterns"):
-                write_line("")
-                write_line("Антипаттерны:")
-                for pattern in общий_анализ["antipatterns"]:
-                    write_line(f"- {pattern['name']}", 1)
-
-            write_line("")
-            write_line("Детальный анализ Pull Requests:")
-            
-            for pr in analysis_results.get("детальный_анализ", []):
-                write_line("")
-                write_line(f"PR #{pr['pr_info']['id']}", 1)
-                write_line(f"Автор: {pr['pr_info']['author']}", 1)
-                write_line(f"Создан: {pr['pr_info']['created_at']}", 1)
-                write_line(f"Ссылка: {pr['pr_info']['link']}", 1)
+            if общий_анализ:
+                elements.append(Paragraph("Общий анализ кода", styles['Heading1']))
+                elements.append(HorizontalLine(450, colors.grey, 1))
                 
+                # Общая оценка
+                score = общий_анализ.get('overall_score', 'Н/Д')
+                score_text = f"<b>Общая оценка кода:</b> {score}"
+                elements.append(Paragraph(score_text, styles['NormalText']))
+                elements.append(Spacer(1, 5*mm))
+                
+                # Статистика по статусам PR
+                if "pr_status_stats" in общий_анализ:
+                    stats = общий_анализ["pr_status_stats"]
+                    elements.append(Paragraph("Статистика по PR:", styles['Heading2']))
+                    
+                    # Создаем таблицу со статистикой
+                    data = [
+                        ["Открытые:", str(stats.get("open", 0))],
+                        ["Принятые:", str(stats.get("merged", 0))],
+                        ["Отклоненные:", str(stats.get("rejected", 0))],
+                        ["Всего:", str(stats.get("total", 0))]
+                    ]
+                    
+                    # Создание таблицы
+                    t = Table(data, colWidths=[100, 80])
+                    t.setStyle(TableStyle([
+                        ('FONTNAME', (0, 0), (0, -1), 'DejaVuSans-Bold'),
+                        ('FONTNAME', (1, 0), (1, -1), 'DejaVuSans'),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                        ('TOPPADDING', (0, 0), (-1, -1), 3),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('TEXTCOLOR', (0, 0), (0, 0), colors.blue),  # Открытые - синий
+                        ('TEXTCOLOR', (0, 1), (0, 1), colors.green),  # Принятые - зеленый
+                        ('TEXTCOLOR', (0, 2), (0, 2), colors.red),  # Отклоненные - красный
+                    ]))
+                    elements.append(t)
+                    elements.append(Spacer(1, 5*mm))
+                
+                # Повторяющиеся проблемы
+                if общий_анализ.get("recurring_issues"):
+                    elements.append(Paragraph("Повторяющиеся проблемы:", styles['Heading2']))
+                    for issue in общий_анализ["recurring_issues"]:
+                        issue_text = wrap_text(f"- {issue['issue']}")
+                        elements.append(Paragraph(issue_text, styles['List']))
+                    elements.append(Spacer(1, 3*mm))
+                
+                # Антипаттерны
+                if общий_анализ.get("antipatterns"):
+                    elements.append(Paragraph("Антипаттерны:", styles['Heading2']))
+                    for pattern in общий_анализ["antipatterns"]:
+                        pattern_text = wrap_text(f"- {pattern['name']}")
+                        elements.append(Paragraph(pattern_text, styles['List']))
+            else:
+                elements.append(Paragraph("Результаты общего анализа", styles['Heading1']))
+                elements.append(HorizontalLine(450, colors.grey, 1))
+                elements.append(Paragraph("Результаты общего анализа отсутствуют или неполные", styles['NormalText']))
+                elements.append(Paragraph("Возможно, в заданном периоде нет достаточно PR для анализа", styles['NormalText']))
+                
+            # Детальный анализ PR с разбиением на отдельные страницы
+            elements.append(PageBreak())
+            elements.append(Paragraph("Детальный анализ Pull Requests", styles['Heading1']))
+            elements.append(HorizontalLine(450, colors.grey, 1))
+            
+            for i, pr in enumerate(analysis_results.get("детальный_анализ", [])):
+                # Если не первый PR, добавляем разрыв страницы
+                if i > 0:
+                    elements.append(PageBreak())
+                
+                pr_id = pr['pr_info']['id']
+                pr_status = pr['pr_info'].get('status', 'open')
+                
+                # Отображение заголовка PR с его статусом
+                status_text = ""
+                if pr_status == "open":
+                    status_text = " [В РАБОТЕ]"
+                elif pr_status == "merged":
+                    status_text = " [ПРИНЯТ]"
+                elif pr_status == "rejected":
+                    status_text = " [ОТКЛОНЕН]"
+                
+                elements.append(Paragraph(f"PR #{pr_id}{status_text}", styles['Heading2']))
+                
+                # Основная информация о PR в форме таблицы
+                data = [
+                    ["Автор:", pr['pr_info']['author']],
+                    ["Создан:", pr['pr_info']['created_at']],
+                    ["Статус:", pr_status]
+                ]
+                
+                # Добавляем даты закрытия и слияния, если есть
+                if pr['pr_info'].get('closed_at'):
+                    data.append(["Закрыт:", pr['pr_info']['closed_at']])
+                if pr['pr_info'].get('merged_at'):
+                    data.append(["Принят:", pr['pr_info']['merged_at']])
+                
+                data.append(["Репозиторий:", pr['pr_info']['repository']])
+                data.append(["Ссылка:", pr['pr_info']['link']])
+                
+                # Создание таблицы
+                t = Table(data, colWidths=[100, 330])
+                t.setStyle(TableStyle([
+                    ('FONTNAME', (0, 0), (0, -1), 'DejaVuSans-Bold'),
+                    ('FONTNAME', (1, 0), (1, -1), 'DejaVuSans'),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                    ('TOPPADDING', (0, 0), (-1, -1), 3),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    # Выделяем статус цветом
+                    ('TEXTCOLOR', (1, 2), (1, 2), 
+                     colors.blue if pr_status == "open" else
+                     colors.green if pr_status == "merged" else
+                     colors.red)
+                ]))
+                elements.append(t)
+                elements.append(Spacer(1, 5*mm))
+                
+                # Данные о сложности и оценке
                 if "complexity" in pr:
-                    write_line(f"Сложность: {pr['complexity']['level']} - {pr['complexity']['explanation']}", 1)
+                    complexity_text = f"<b>Сложность:</b> {pr['complexity']['level']} - {wrap_text(pr['complexity']['explanation'])}"
+                    elements.append(Paragraph(complexity_text, styles['NormalText']))
                 
                 if "code_rating" in pr:
-                    write_line(f"Оценка кода: {pr['code_rating']['score']}/10", 1)
-                    write_line(f"Пояснение: {pr['code_rating']['explanation']}", 1)
-
-                if pr.get("issues"):
-                    write_line("Проблемы:", 1)
-                    for issue in pr["issues"]:
-                        write_line(f"- [{issue['type']}] {issue['description']}", 2)
-
-                if pr.get("antipatterns"):
-                    write_line("Антипаттерны:", 1)
-                    for pattern in pr["antipatterns"]:
-                        write_line(f"- {pattern['name']}", 2)
-
-                if pr.get("positive_aspects"):
-                    write_line("Положительные моменты:", 1)
-                    for pos in pr["positive_aspects"]:
-                        write_line(f"- {pos}", 2)
-
-                if pr['pr_info'].get('commits'):
-                    write_line("Коммиты:", 1)
-                    for commit in pr['pr_info']['commits']:
-                        write_line(f"- {commit['message']} ({commit['sha'][:7]})", 2)
+                    rating_text = f"<b>Оценка кода:</b> {pr['code_rating']['score']}/10"
+                    elements.append(Paragraph(rating_text, styles['NormalText']))
+                    explanation_text = f"<b>Пояснение:</b> {wrap_text(pr['code_rating']['explanation'])}"
+                    elements.append(Paragraph(explanation_text, styles['NormalText']))
                 
-                write_line("") # Пустая строка между PR
+                elements.append(Spacer(1, 3*mm))
+                
+                # Проблемы
+                if pr.get("issues"):
+                    elements.append(Paragraph("Проблемы:", styles['Heading2']))
+                    for issue in pr["issues"]:
+                        issue_text = wrap_text(f"- [{issue['type']}] {issue['description']}")
+                        elements.append(Paragraph(issue_text, styles['List']))
+                    elements.append(Spacer(1, 3*mm))
+                
+                # Антипаттерны
+                if pr.get("antipatterns"):
+                    elements.append(Paragraph("Антипаттерны:", styles['Heading2']))
+                    for pattern in pr["antipatterns"]:
+                        if isinstance(pattern, dict) and "name" in pattern:
+                            pattern_text = wrap_text(f"- {pattern['name']}")
+                        else:
+                            pattern_text = wrap_text(f"- {pattern}")
+                        elements.append(Paragraph(pattern_text, styles['List']))
+                    elements.append(Spacer(1, 3*mm))
+                
+                # Положительные моменты
+                if pr.get("positive_aspects"):
+                    elements.append(Paragraph("Положительные моменты:", styles['Heading2']))
+                    for pos in pr["positive_aspects"]:
+                        if isinstance(pos, dict) and "description" in pos:
+                            pos_text = wrap_text(f"- {pos['description']}")
+                        else:
+                            pos_text = wrap_text(f"- {pos}")
+                        elements.append(Paragraph(pos_text, styles['List']))
+                    elements.append(Spacer(1, 3*mm))
+                
+                # Коммиты
+                if pr['pr_info'].get('commits'):
+                    elements.append(Paragraph("Коммиты:", styles['Heading2']))
+                    for commit in pr['pr_info']['commits']:
+                        commit_text = wrap_text(f"- {commit['message']} ({commit['sha'][:7]})")
+                        elements.append(Paragraph(commit_text, styles['List']))
+                
+                # Разделитель между PR
+                elements.append(Spacer(1, 5*mm))
+                elements.append(HorizontalLine(450, colors.lightgrey, 1))
         else:
-            write_line("Данные анализа не найдены")
-            write_line("Возможные причины:")
-            write_line("- Файл анализа не существует или поврежден", 1)
-            write_line("- Нет PR в указанном периоде", 1)
-            write_line("- PR не принадлежат указанному автору", 1)
-
-        c.save()
+            elements.append(Paragraph("Данные анализа не найдены", styles['Heading1']))
+            elements.append(HorizontalLine(450, colors.grey, 1))
+            elements.append(Paragraph("Возможные причины:", styles['Heading2']))
+            elements.append(Paragraph("- Файл анализа не существует или поврежден", styles['List']))
+            elements.append(Paragraph("- Нет PR в указанном периоде", styles['List']))
+            elements.append(Paragraph("- PR не принадлежат указанному пользователю", styles['List']))
+            elements.append(Paragraph(f"Проверьте логин пользователя: {report_req.login}", styles['NormalText']))
+        
+        # Сборка документа
+        doc.build(elements)
         buffer.seek(0)
         pdf_data = buffer.getvalue()
         
         # Генерируем целочисленный id
         current_time = int(datetime.now().timestamp())
-        report_id = abs(hash(f"{current_time}{report_req.email}")) % (2**31)
+        report_id = abs(hash(f"{current_time}{report_req.login}")) % (2**31)
         
         # Сохраняем отчет в базу данных
         try:
@@ -321,7 +539,7 @@ async def generate_report(report_req: ReportRequest):
                     RETURNING id
                 """), {
                     "id": report_id,
-                    "email": report_req.email,
+                    "email": report_req.login,
                     "file_data": pdf_data
                 })
                 inserted_id = result.scalar()
@@ -338,11 +556,14 @@ async def generate_report(report_req: ReportRequest):
             buffer,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f"attachment; filename=report_{report_req.email.replace('@', '_')}.pdf"
+                "Content-Disposition": f"attachment; filename=report_{report_req.login.replace('@', '_')}.pdf"
             }
         )
     except Exception as e:
-        print(f"Критическая ошибка при создании отчета: {str(e)}")
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Ошибка при создании отчета: {str(e)}")
+        print(f"Детали ошибки: {error_details}")
         raise HTTPException(status_code=500, detail=f"Ошибка при создании отчета: {str(e)}")
 
 
@@ -409,7 +630,7 @@ async def get_reports():
                 return []
             
             result = await session.execute(text("""
-                SELECT id, email, creation_date, file_data
+                SELECT id, email, creation_date
                 FROM code_review_reports
                 ORDER BY creation_date DESC
             """))
@@ -422,9 +643,10 @@ async def get_reports():
                     "created_at": row[2].isoformat() if row[2] else None
                 })
             
-            print(f"Получено {len(reports)} отчетов из БД")
+            print(f"Получено отчетов: {len(reports)}")
             return reports
     except Exception as e:
+        print(f"Ошибка при получении списка отчетов: {str(e)}")
         print(f"Ошибка при получении списка отчетов: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении списка отчетов: {str(e)}")
 

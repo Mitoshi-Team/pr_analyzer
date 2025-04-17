@@ -35,7 +35,7 @@ services:
       - HUGGING_FACE_HUB_TOKEN=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
       - HF_HUB_ENABLE_HF_TRANSFER=0
     command: >
-      --model Qwen/Qwen2.5-Coder-7B-Instruct-AWQ
+      --model Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ
       --quantization awq_marlin
     ipc: host
     networks:
