@@ -441,8 +441,9 @@ class GitHubParser:
             return parse_analysis(response["choices"][0]["message"]["content"])
         return None
 
+def main():
+    parser = GitHubParser()
+    results = parser.analyze_all_prs(["https://github.com/microsoft/vscode-extension-samples"], start_date=None, end_date=None, author_login="mrljtster", save_to="analysis_report.json")
 
-parser = GitHubParser()
-# Передаем параметры для фильтрации PR по дате и автору
-# https://github.com/microsoft/vscode-extension-samples
-results = parser.analyze_all_prs(["https://github.com/microsoft/vscode-extension-samples"], start_date=None, end_date=None, author_login="mrljtster", save_to="analysis_report.json")
+if __name__ == "__main__":
+    main()
