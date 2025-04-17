@@ -287,19 +287,50 @@ async def generate_report(report_req: ReportRequest):
         current_time = int(datetime.now().timestamp())
         report_id = abs(hash(f"{current_time}{report_req.email}")) % (2**31)
         
+        # Сохраняем отчет в базу данных
         try:
             async with async_session() as session:
-                await session.execute(text("""
+                # Проверяем существование таблицы
+                table_check = await session.execute(text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public'
+                        AND table_name = 'code_review_reports'
+                    )
+                """))
+                table_exists = table_check.scalar()
+                
+                if not table_exists:
+                    print("Таблица code_review_reports не существует, создаем...")
+                    await session.execute(text("""
+                        CREATE TABLE IF NOT EXISTS code_review_reports (
+                            id BIGINT PRIMARY KEY,
+                            email VARCHAR(255) NOT NULL,
+                            creation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                            file_data BYTEA NOT NULL
+                        )
+                    """))
+                    await session.commit()
+                    print("Таблица code_review_reports создана успешно")
+                
+                # Сохраняем отчет
+                print(f"Сохраняем отчет в БД для email: {report_req.email}, ID: {report_id}")
+                result = await session.execute(text("""
                     INSERT INTO code_review_reports (id, email, creation_date, file_data)
                     VALUES (:id, :email, CURRENT_TIMESTAMP, :file_data)
+                    RETURNING id
                 """), {
                     "id": report_id,
                     "email": report_req.email,
                     "file_data": pdf_data
                 })
+                inserted_id = result.scalar()
                 await session.commit()
+                print(f"Отчет успешно сохранен в БД с ID: {inserted_id}")
         except Exception as db_error:
-            print(f"Предупреждение: не удалось сохранить отчет в БД: {str(db_error)}")
+            print(f"Ошибка при сохранении отчета в БД: {str(db_error)}")
+            # Не выбрасываем исключение, чтобы пользователь все равно получил PDF
+            # Но логируем ошибку для отладки
         
         # Возвращаем PDF как ответ
         buffer.seek(0)
@@ -311,6 +342,7 @@ async def generate_report(report_req: ReportRequest):
             }
         )
     except Exception as e:
+        print(f"Критическая ошибка при создании отчета: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при создании отчета: {str(e)}")
 
 
@@ -359,15 +391,23 @@ async def get_tables():
 async def get_reports():
     """
     Получение списка всех отчетов.
-    
-    Returns:
-        list: Список всех отчетов в системе.
-        
-    Raises:
-        HTTPException: Если произошла ошибка при получении списка отчетов.
     """
     try:
         async with async_session() as session:
+            # Проверяем существование таблицы
+            table_check = await session.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public'
+                    AND table_name = 'code_review_reports'
+                )
+            """))
+            table_exists = table_check.scalar()
+            
+            if not table_exists:
+                print("Таблица code_review_reports не существует при запросе отчетов")
+                return []
+            
             result = await session.execute(text("""
                 SELECT id, email, creation_date, file_data
                 FROM code_review_reports
@@ -379,12 +419,13 @@ async def get_reports():
                 reports.append({
                     "id": row[0],
                     "email": row[1],
-                    "created_at": row[2].isoformat() if row[2] else None,
-                    "file_data": row[3]
+                    "created_at": row[2].isoformat() if row[2] else None
                 })
             
+            print(f"Получено {len(reports)} отчетов из БД")
             return reports
     except Exception as e:
+        print(f"Ошибка при получении списка отчетов: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении списка отчетов: {str(e)}")
 
 @app.get("/reports/{report_id}/download")

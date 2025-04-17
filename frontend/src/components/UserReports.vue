@@ -133,12 +133,14 @@ export default {
     async fetchReports() {
       this.loading = true;
       try {
+        console.log("Запрашиваем список отчетов");
         const response = await axios.get('/api/reports');
+        console.log("Получены отчеты:", response.data);
         this.reports = response.data;
-        this.loading = false;
       } catch (error) {
         console.error('Ошибка при получении отчетов:', error);
         this.error = 'Не удалось загрузить отчеты';
+      } finally {
         this.loading = false;
       }
     },
@@ -151,6 +153,7 @@ export default {
       
       this.loading = true;
       try {
+        console.log("Отправка запроса на генерацию отчета", this.reportForm);
         const response = await axios.post('/api/reports/generate', {
           email: this.reportForm.login, // оставляем поле email для обратной совместимости
           login: this.reportForm.login,
@@ -185,8 +188,13 @@ export default {
         };
         this.newRepoLink = '';
         
-        // Обновляем список отчетов
-        await this.fetchReports();
+        // Небольшая задержка перед обновлением списка отчетов,
+        // чтобы дать время базе данных завершить транзакцию
+        console.log("Ожидаем завершения операции в БД...");
+        setTimeout(async () => {
+          console.log("Обновляем список отчетов после генерации");
+          await this.fetchReports();
+        }, 1000);
         
       } catch (error) {
         console.error('Ошибка при формировании отчета:', error);
