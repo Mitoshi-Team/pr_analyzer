@@ -5,11 +5,16 @@ import time
 import argparse
 import tkinter as tk
 from tkinter import filedialog
+from dotenv import load_dotenv
+
+# Загружаем переменные из .env файла
+load_dotenv()
 
 # Исправляем URL для обращения к API на правильный порт из docker-compose
 API_URL = "http://vllm:8000/v1/chat/completions"  # внутри контейнера используем сетевое имя
 
-MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct-AWQ"
+# Получаем название модели из .env
+MODEL = os.getenv("MODEL_NAME")
 HEADERS = {"Content-Type": "application/json"}
 
 # Максимальное количество попыток отправки запроса
