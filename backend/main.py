@@ -30,7 +30,9 @@ class ReportRequest(BaseModel):
     """
     Модель запроса на создание отчета.
     """
-    email: str
+    email: str  # Оставляем для обратной совместимости
+    login: Optional[str] = None
+    repoLinks: Optional[List[str]] = None
     startDate: str
     endDate: str
 
@@ -152,6 +154,29 @@ def pars_pr(token, owner, repo, state, start_date=None, end_date=None, author_em
 @app.post("/reports/generate")
 async def generate_report(report_req: ReportRequest):
     try:
+        # Получаем логин пользователя из запроса или используем email
+        login = report_req.login or report_req.email
+        
+        # Если переданы ссылки на репозитории, запускаем анализ
+        if report_req.repoLinks:
+            try:
+                # Создаем парсер GitHub
+                parser = GitHubParser()
+                
+                # Запускаем анализ всех PR
+                analysis_results = parser.analyze_all_prs(
+                    repo_links=report_req.repoLinks,
+                    start_date=report_req.startDate,
+                    end_date=report_req.endDate,
+                    author_login=login,
+                    save_to="analysis_report.json"
+                )
+                
+                if not analysis_results:
+                    print(f"Предупреждение: Не найдены PR для анализа для пользователя {login}")
+            except Exception as e:
+                print(f"Ошибка при анализе репозиториев: {str(e)}")
+        
         # Создаем буфер для PDF
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
@@ -180,8 +205,15 @@ async def generate_report(report_req: ReportRequest):
             analysis_results = None
 
         # Генерация отчета
-        write_line(f"Отчет об оценке качества кода для {report_req.email}")
+        write_line(f"Отчет об оценке качества кода для {login}")
         write_line(f"Период: с {report_req.startDate} по {report_req.endDate}")
+        
+        # Добавим информацию о репозиториях
+        if report_req.repoLinks:
+            write_line("Проанализированные репозитории:")
+            for link in report_req.repoLinks:
+                write_line(f"- {link}", 1)
+                
         write_line(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         write_line("")
 
