@@ -152,34 +152,28 @@ export default {
       }
       
       this.loading = true;
+      this.error = null;
+      
       try {
-        console.log("Отправка запроса на генерацию отчета", this.reportForm);
+        // Сообщаем пользователю о начале формирования отчета
+        alert('Начат процесс формирования отчета. Это может занять некоторое время. Отчет автоматически появится в списке и будет доступен для скачивания.');
+        
+        // Сохраняем введенный логин для использования в обратном вызове
+        const login = this.reportForm.login;
+        
+        // Отправляем запрос на начало формирования отчета
         const response = await axios.post('/api/reports/generate', {
-          email: this.reportForm.login, // оставляем поле email для обратной совместимости
+          email: this.reportForm.login,
           login: this.reportForm.login,
           repoLinks: this.reportForm.repoLinks,
           startDate: this.reportForm.startDate,
           endDate: this.reportForm.endDate
-        }, {
-          responseType: 'blob' // Указываем, что ожидаем бинарные данные
         });
         
-        // Создаем объект Blob из ответа
-        const blob = new Blob([response.data], { type: 'application/pdf' });
+        // Получаем ID процесса формирования отчета из ответа
+        const processId = response.data.process_id;
         
-        // Создаем ссылку для скачивания
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.setAttribute('download', `report_${this.reportForm.login}_${new Date().toISOString().slice(0,10)}.pdf`);
-        document.body.appendChild(link);
-        link.click();
-        
-        // Очищаем
-        window.URL.revokeObjectURL(url);
-        link.remove();
-        
-        // Сбрасываем форму
+        // Очищаем форму
         this.reportForm = {
           login: '',
           repoLinks: [],
@@ -188,18 +182,76 @@ export default {
         };
         this.newRepoLink = '';
         
-        // Небольшая задержка перед обновлением списка отчетов,
-        // чтобы дать время базе данных завершить транзакцию
-        console.log("Ожидаем завершения операции в БД...");
-        setTimeout(async () => {
-          console.log("Обновляем список отчетов после генерации");
-          await this.fetchReports();
-        }, 1000);
+        console.log(`Запрос на формирование отчета отправлен. ID процесса: ${processId}`);
+        
+        // Начинаем периодически проверять статус формирования отчета
+        const checkStatus = async () => {
+          try {
+            const statusResponse = await axios.get(`/api/reports/status/${processId}`);
+            const { status, message, report_id } = statusResponse.data;
+            
+            console.log(`Статус формирования отчета: ${status}, сообщение: ${message}`);
+            
+            if (status === 'completed' && report_id) {
+              // Отчет успешно сформирован
+              this.loading = false;
+              
+              // Обновляем список отчетов
+              await this.fetchReports();
+              
+              // Уведомляем пользователя
+              alert(`Отчет для ${login} успешно сформирован и доступен для скачивания!`);
+              return true;
+            } else if (status === 'failed') {
+              // Формирование отчета завершилось с ошибкой
+              this.loading = false;
+              alert(`Не удалось сформировать отчет: ${message}`);
+              return true;
+            }
+            
+            // Если процесс еще не завершен, продолжаем проверять
+            return false;
+          } catch (error) {
+            console.error('Ошибка при проверке статуса отчета:', error);
+            return false;
+          }
+        };
+        
+        // Периодически проверяем статус
+        const interval = setInterval(async () => {
+          const isDone = await checkStatus();
+          if (isDone) {
+            clearInterval(interval);
+          }
+        }, 5000); // Проверяем каждые 5 секунд
+        
+        // Через 15 минут прекращаем проверки если отчет так и не сформировался
+        setTimeout(() => {
+          clearInterval(interval);
+          if (this.loading) {
+            this.loading = false;
+            alert("Превышено время ожидания формирования отчета. Пожалуйста, проверьте список отчетов позже.");
+          }
+        }, 15 * 60 * 1000); // 15 минут
         
       } catch (error) {
-        console.error('Ошибка при формировании отчета:', error);
-        alert('Не удалось сформировать отчет');
-      } finally {
+        console.error('Ошибка при запросе на формирование отчета:', error);
+        
+        let errorMessage = 'Не удалось отправить запрос на формирование отчета';
+        
+        if (error.response) {
+          errorMessage += `: ${error.response.status} - ${error.response.statusText}`;
+          if (error.response.data && typeof error.response.data === 'object') {
+            errorMessage += `. ${error.response.data.detail || ''}`;
+          }
+        } else if (error.request) {
+          errorMessage = 'Не удалось получить ответ от сервера. Проверьте подключение к интернету.';
+        } else {
+          errorMessage += `: ${error.message}`;
+        }
+        
+        alert(errorMessage);
+        this.error = errorMessage;
         this.loading = false;
       }
     },

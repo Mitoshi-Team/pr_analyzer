@@ -28,7 +28,7 @@ class GitHubParser:
 
     def get_pr_list(self, owner, repo, state="open"):
         """
-        Получение списка pull request'ов из репозитория.
+        Получение полного списка pull request'ов из репозитория с поддержкой пагинации.
         
         Args:
             owner (str): Владелец репозитория.
@@ -36,23 +36,47 @@ class GitHubParser:
             state (str, optional): Состояние PR (open/closed/all). По умолчанию "open".
             
         Returns:
-            list: Список pull request'ов.
+            list: Полный список pull request'ов.
             
         Raises:
             requests.exceptions.HTTPError: Если произошла ошибка HTTP.
             Exception: При других ошибках.
         """
         try:
-            url = f"https://api.github.com/repos/{owner}/{repo}/pulls?state={state}"
-            response = requests.get(url, headers=self.headers)
-            response.raise_for_status()
-            return response.json()
+            all_prs = []
+            page = 1
+            per_page = 100  # Максимальное количество результатов на странице
+            
+            while True:
+                url = f"https://api.github.com/repos/{owner}/{repo}/pulls?state={state}&page={page}&per_page={per_page}"
+                print(f"Запрашиваем PR: страница {page}, {owner}/{repo}, состояние: {state}")
+                response = requests.get(url, headers=self.headers)
+                response.raise_for_status()
+                
+                page_results = response.json()
+                if not page_results:  # Если страница пустая, значит PR больше нет
+                    break
+                    
+                all_prs.extend(page_results)
+                print(f"Получено {len(page_results)} PR на странице {page}, всего: {len(all_prs)}")
+                
+                # Проверяем, есть ли следующая страница
+                if len(page_results) < per_page:
+                    break
+                    
+                page += 1
+                
+            return all_prs
         except requests.exceptions.HTTPError as e:
             if response.status_code == 403:
-                print("Rate limit exceeded. Consider using a GitHub token or wait before retrying.")
+                print("Превышен лимит запросов к API GitHub. Используйте токен или подождите перед повторной попыткой.")
+            elif response.status_code == 404:
+                print(f"Репозиторий {owner}/{repo} не найден или доступ ограничен.")
+            else:
+                print(f"Ошибка HTTP при запросе PR: {e}")
             raise e
         except Exception as e:
-            print(f"Error fetching PR list: {e}")
+            print(f"Ошибка при получении списка PR: {e}")
             raise e
 
 

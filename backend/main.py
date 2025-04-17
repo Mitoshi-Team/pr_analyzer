@@ -1,12 +1,11 @@
-from fastapi import FastAPI, Request, HTTPException, Query
+from fastapi import FastAPI, Request, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from fastapi.responses import StreamingResponse
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -19,7 +18,6 @@ from reportlab.lib.units import mm, cm
 from datetime import datetime, timezone, timedelta
 import io
 from typing import List, Optional
-from datetime import datetime
 import os
 import base64
 import uuid
@@ -59,6 +57,27 @@ class ReportResponse(BaseModel):
     email: str
     created_at: str
     file_data: str
+
+# Словарь для хранения статусов формирования отчетов
+report_status = {}
+
+# Класс запроса на формирование отчета с полем для ID процесса
+class ReportStartResponse(BaseModel):
+    """
+    Модель ответа с ID процесса формирования отчета.
+    """
+    process_id: str
+    message: str
+
+# Класс запроса для проверки статуса отчета
+class ReportStatusResponse(BaseModel):
+    """
+    Модель ответа о статусе формирования отчета.
+    """
+    process_id: str
+    status: str  # "pending", "completed", "failed"
+    message: str
+    report_id: Optional[str] = None
 
 app = FastAPI(root_path="/api")
 
@@ -165,21 +184,75 @@ def pars_pr(token, owner, repo, state, start_date=None, end_date=None, author_em
     except Exception as e:
         print('Error:', str(e))
 
-
 @app.post("/reports/generate")
-async def generate_report(report_req: ReportRequest):
+async def start_report_generation(report_req: ReportRequest, background_tasks: BackgroundTasks):
+    """
+    Начинает асинхронное формирование отчета в фоновом режиме.
+    Возвращает ID процесса формирования, который можно использовать для проверки статуса.
+    """
+    # Генерируем уникальный ID для процесса формирования отчета
+    process_id = str(uuid.uuid4())
+    
+    # Устанавливаем начальный статус
+    report_status[process_id] = {
+        "status": "pending",
+        "message": "Формирование отчета начато",
+        "report_id": None,
+        "login": report_req.login
+    }
+    
+    # Запускаем задачу формирования отчета в фоновом режиме
+    background_tasks.add_task(
+        generate_report_async,
+        process_id=process_id,
+        report_req=report_req
+    )
+    
+    return ReportStartResponse(
+        process_id=process_id,
+        message="Формирование отчета начато. Используйте ID процесса для проверки статуса."
+    )
+
+@app.get("/reports/status/{process_id}")
+async def check_report_status(process_id: str):
+    """
+    Проверяет статус формирования отчета по ID процесса.
+    """
+    if process_id not in report_status:
+        raise HTTPException(status_code=404, detail=f"Процесс с ID {process_id} не найден")
+    
+    status_info = report_status[process_id]
+    
+    return ReportStatusResponse(
+        process_id=process_id,
+        status=status_info["status"],
+        message=status_info["message"],
+        report_id=status_info.get("report_id")
+    )
+
+async def generate_report_async(process_id: str, report_req: ReportRequest):
+    """
+    Асинхронная функция для формирования отчета в фоновом режиме.
+    Обновляет словарь статусов по завершении.
+    """
     try:
+        # Запоминаем логин
+        login = report_req.login
+        
         # Получаем и анализируем данные из репозиториев
         parser = GitHubParser()
-        print(f"Начинаем анализ PR для пользователя: {report_req.login}")
+        print(f"Начинаем анализ PR для пользователя: {login}")
         print(f"Репозитории: {report_req.repoLinks}")
         print(f"Период: {report_req.startDate} - {report_req.endDate}")
+        
+        # Обновляем статус
+        report_status[process_id]["message"] = "Анализ PR начат"
         
         analysis_results = parser.analyze_all_prs(
             report_req.repoLinks,
             start_date=report_req.startDate,
             end_date=report_req.endDate,
-            author_login=report_req.login,
+            author_login=login,
             save_to="analysis_report.json"
         )
         
@@ -187,12 +260,16 @@ async def generate_report(report_req: ReportRequest):
         if not analysis_results:
             print("Предупреждение: анализатор не вернул результаты для PR")
             
+        # Обновляем статус
+        report_status[process_id]["message"] = "Анализ PR завершен, формирование PDF"
+        
         # Создаем буфер для PDF
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4,
                                rightMargin=20*mm, leftMargin=20*mm,
                                topMargin=20*mm, bottomMargin=20*mm)
         
+        # [весь код формирования PDF остается без изменений]
         # Создаем стили для текста
         styles = getSampleStyleSheet()
         
@@ -508,12 +585,12 @@ async def generate_report(report_req: ReportRequest):
         buffer.seek(0)
         pdf_data = buffer.getvalue()
         
-        # Генерируем целочисленный id
-        current_time = int(datetime.now().timestamp())
-        report_id = abs(hash(f"{current_time}{report_req.login}")) % (2**31)
-        
         # Сохраняем отчет в базу данных
         try:
+            # Генерируем целочисленный id
+            current_time = int(datetime.now().timestamp())
+            report_id = abs(hash(f"{current_time}{login}")) % (2**31)
+            
             async with async_session() as session:
                 # Проверяем существование таблицы
                 table_check = await session.execute(text("""
@@ -539,41 +616,52 @@ async def generate_report(report_req: ReportRequest):
                     print("Таблица code_review_reports создана успешно")
                 
                 # Сохраняем отчет
-                print(f"Сохраняем отчет в БД для логина: {report_req.login}, ID: {report_id}")
-                result = await session.execute(text("""
-                    INSERT INTO code_review_reports (id, email, creation_date, file_data)
-                    VALUES (:id, :email, :creation_date, :file_data)
-                    RETURNING id
-                """), {
-                    "id": report_id,
-                    "email": report_req.login,
-                    "creation_date": get_moscow_time(),
-                    "file_data": pdf_data
-                })
-                inserted_id = result.scalar()
-                await session.commit()
-                print(f"Отчет успешно сохранен в БД с ID: {inserted_id}")
+                print(f"Сохраняем отчет в БД для логина: {login}, ID: {report_id}")
+                try:
+                    result = await session.execute(text("""
+                        INSERT INTO code_review_reports (id, email, file_data, creation_date)
+                        VALUES (:id, :email, :file_data, CURRENT_TIMESTAMP + INTERVAL '3 hours')
+                        RETURNING id
+                    """), {
+                        "id": report_id,
+                        "email": login,
+                        "file_data": pdf_data
+                    })
+                    inserted_id = result.scalar()
+                    await session.commit()
+                    print(f"Отчет успешно сохранен в БД с ID: {inserted_id}")
+                    
+                    # Обновляем статус на успешный
+                    report_status[process_id]["status"] = "completed"
+                    report_status[process_id]["message"] = "Отчет успешно сформирован и сохранен"
+                    report_status[process_id]["report_id"] = str(report_id)
+                    
+                except Exception as insert_error:
+                    print(f"Ошибка при вставке записи в БД: {str(insert_error)}")
+                    await session.rollback()
+                    
+                    # Обновляем статус на ошибку
+                    report_status[process_id]["status"] = "failed"
+                    report_status[process_id]["message"] = f"Ошибка при сохранении в БД: {str(insert_error)}"
+                    raise insert_error
+                    
         except Exception as db_error:
             print(f"Ошибка при сохранении отчета в БД: {str(db_error)}")
-            # Не выбрасываем исключение, чтобы пользователь все равно получил PDF
-            # Но логируем ошибку для отладки
-        
-        # Возвращаем PDF как ответ
-        buffer.seek(0)
-        return StreamingResponse(
-            buffer,
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename=report_{report_req.login.replace('@', '_')}.pdf"
-            }
-        )
+            report_status[process_id]["status"] = "failed"
+            report_status[process_id]["message"] = f"Ошибка при работе с БД: {str(db_error)}"
+            # Сохраняем ID отчета, если он был создан
+            if "report_id" in locals():
+                report_status[process_id]["report_id"] = str(report_id)
+    
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
         print(f"Ошибка при создании отчета: {str(e)}")
         print(f"Детали ошибки: {error_details}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при создании отчета: {str(e)}")
-
+        
+        # Обновляем статус на ошибку
+        report_status[process_id]["status"] = "failed"
+        report_status[process_id]["message"] = f"Ошибка при формировании отчета: {str(e)}"
 
 @app.get("/test-db")
 async def test_db():
@@ -637,17 +725,16 @@ async def get_reports():
                 print("Таблица code_review_reports не существует при запросе отчетов")
                 return []
             
-            # Правильный запрос для работы с timestamp
-            # Используем более прямой подход без преобразования часовых поясов
+            # Получаем данные с сохранением полного формата времени и даты
             result = await session.execute(text("""
                 SELECT id, email, creation_date
                 FROM code_review_reports
-                ORDER BY creation_date ASC
+                ORDER BY creation_date DESC
             """))
             
             reports = []
             for row in result:
-                # Если время уже хранится в timestamp с часовым поясом, просто форматируем его
+                # Сохраняем полный формат timestamp с часовым поясом
                 if row[2]:
                     creation_date = row[2].isoformat()
                     print(f"Отчет ID: {row[0]}, время создания: {creation_date}")
