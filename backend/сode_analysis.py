@@ -33,34 +33,31 @@ def __read_input_file(file_path):
         print(f"Ошибка при чтении файла: {e}")
         return None
 
+# Чтение инструкции из файла
+def __read_instruction_file(file_path="promts/code_analysis_instruction.txt"):
+    try:
+        # Получаем абсолютный путь к директории, где находится сам скрипт
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # Формируем абсолютный путь к файлу инструкции
+        instruction_path = os.path.join(base_dir, file_path)
+        
+        with open(instruction_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        print(f"Ошибка: Файл инструкции {file_path} не найден.")
+        return None
+    except Exception as e:
+        print(f"Ошибка при чтении файла инструкции: {e}")
+        return None
+
 # Отправляет запрос к API для анализа кода.
 def send_request_to_api(prompt):
-    instruction = """Пиши на русском.Проанализируй следующий код или данные и предоставь анализ в JSON формате:
-{
-    "complexity": {
-        "level": "S|M|L",
-        "explanation": "Обоснование выбранной сложности. Не нужна расшифровывать level"
-    },
-    "code_rating": {
-        "score": 0-10,
-        "explanation": "Обоснование оценки"
-    },
-    "issues": [
-        {
-            "type": "критическая|предупреждение|информация",
-            "description": "Описание проблемы"
-        }
-    ],
-    "antipatterns": [
-        {
-            "name": "Название антипаттерна(Пиши на английском)",
-        }
-    ],
-    "positive_aspects": [
-        "Описание положительного аспекта"
-    ]
-}"""
- # Проверяем, не является ли код файлом из папки .github
+    instruction = __read_instruction_file()
+    if instruction is None:
+        print("Не удалось прочитать файл инструкции. Используем аварийную версию.")
+        instruction = """Пиши на русском.Проанализируй следующий код или данные и предоставь анализ в JSON формате."""
+ 
+    # Проверяем, не является ли код файлом из папки .github
     if "/github/" in prompt.lower() or "\\.github\\" in prompt.lower():
         print("Пропуск анализа файла из папки .github")
         return {"choices": [{"message": {"content": "{}"}}]}

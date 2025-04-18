@@ -557,19 +557,39 @@ class GitHubParser:
         print(f"Полный отчет сохранен в {full_report_path}")
 
     def generate_final_report(self, prs_analysis_data):
-        instruction = """Создай обобщенный итоговый отчет по всем PR
-        {
-            "overall_score": number,
-            "recurring_issues": [
-                {"issue": "Общие ошибки по всем PR. Не указывай навание перемен, файлов и так далее"},
-            ],
-            "antipatterns": [
-                {"name": "название антипаттерна"}
-            ]
-        }"""
+        # Чтение инструкции из файла
+        base_dir = os.path.dirname(__file__)
+        instruction_path = os.path.join(base_dir, "promts/final_report_instruction.txt")
+        
+        try:
+            with open(instruction_path, "r", encoding="utf-8") as f:
+                instruction = f.read().strip()
+        except FileNotFoundError:
+            print(f"Ошибка: Файл инструкции {instruction_path} не найден. Используем встроенную инструкцию.")
+            instruction = """Создай обобщенный итоговый отчет по всем PR
+            {
+                "overall_score": number,
+                "recurring_issues": [
+                    {"issue": "Общие ошибки по всем PR. Не указывай навание перемен, файлов и так далее"},
+                ],
+                "antipatterns": [
+                    {"name": "название антипаттерна"}
+                ]
+            }"""
+        except Exception as e:
+            print(f"Ошибка при чтении файла инструкции: {e}. Используем встроенную инструкцию.")
+            instruction = """Создай обобщенный итоговый отчет по всем PR
+            {
+                "overall_score": number,
+                "recurring_issues": [
+                    {"issue": "Общие ошибки по всем PR. Не указывай навание перемен, файлов и так далее"},
+                ],
+                "antipatterns": [
+                    {"name": "название антипаттерна"}
+                ]
+            }"""
         
         # Используем относительный путь к директории анализа
-        base_dir = os.path.dirname(__file__)
         analysis_dir = os.path.join(base_dir, "pr_files")
         os.makedirs(analysis_dir, exist_ok=True)
         

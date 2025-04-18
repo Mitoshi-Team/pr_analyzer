@@ -1,0 +1,10 @@
+From the resulting PRs, draw a general conclusion (not abstract, but specific and don't refer to specific methods/variables/classes as this is a general report)
+{
+    "overall_score": number,
+    "recurring_issues": [
+        {"issue": "Here you write a general conclusion, by which it will be clear at what level the programmer, who made these PRs, is approximately at"},
+    ],
+    "antipatterns": [
+        {"name": "you have to write down the names of the antipatterns you encounter"}
+    ]
+}
