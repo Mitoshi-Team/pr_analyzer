@@ -681,12 +681,36 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 
                 if not table_exists:
                     print("Таблица code_review_reports не существует, создаем...")
+                    # Проверяем существование последовательности
+                    seq_check = await session.execute(text("""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.sequences 
+                            WHERE sequence_schema = 'public'
+                            AND sequence_name = 'code_review_reports_id_seq'
+                        )
+                    """))
+                    seq_exists = seq_check.scalar()
+                    
+                    # Создаем последовательность, если её нет
+                    if not seq_exists:
+                        await session.execute(text("""
+                            CREATE SEQUENCE public.code_review_reports_id_seq
+                            INCREMENT 1
+                            START 1
+                            MINVALUE 1
+                            MAXVALUE 2147483647
+                            CACHE 1;
+                        """))
+                    
+                    # Создаем таблицу с правильной структурой
                     await session.execute(text("""
-                        CREATE TABLE IF NOT EXISTS code_review_reports (
-                            id BIGINT PRIMARY KEY,
-                            email VARCHAR(255) NOT NULL,
-                            creation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                            file_data BYTEA NOT NULL
+                        CREATE TABLE IF NOT EXISTS public.code_review_reports
+                        (
+                        id integer NOT NULL DEFAULT nextval('code_review_reports_id_seq'::regclass),
+                        email text COLLATE pg_catalog."default" NOT NULL,
+                        creation_date timestamp without time zone NOT NULL,
+                        file_data bytea NOT NULL,
+                        CONSTRAINT code_review_reports_pkey PRIMARY KEY (id)
                         )
                     """))
                     await session.commit()

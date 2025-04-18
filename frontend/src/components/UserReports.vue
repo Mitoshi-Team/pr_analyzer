@@ -81,7 +81,7 @@
         <table class="reports-table">
           <thead>
             <tr>
-              <th>Email пользователя</th>
+              <th>Логин пользователя</th>
               <th>Файл</th>
               <th>Дата создания</th>
             </tr>
