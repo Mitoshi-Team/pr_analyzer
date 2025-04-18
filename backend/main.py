@@ -635,13 +635,6 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                                 pos_text = wrap_text(f"- {pos}")
                             elements.append(Paragraph(pos_text, styles['List']))
                         elements.append(Spacer(1, 3*mm))
-                    
-                    # Коммиты
-                    if pr['pr_info'].get('commits'):
-                        elements.append(Paragraph("Коммиты:", styles['Heading2']))
-                        for commit in pr['pr_info']['commits']:
-                            commit_text = wrap_text(f"- {commit['message']}")
-                            elements.append(Paragraph(commit_text, styles['List']))
         else:
             # Эта часть кода не будет выполняться, так как мы уже отфильтровали отчеты с ошибками выше
             elements.append(Paragraph("Данные анализа не найдены", styles['Heading1']))
