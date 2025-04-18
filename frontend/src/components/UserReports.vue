@@ -266,13 +266,6 @@ export default {
         
         const processId = response.data.process_id;
         
-        this.reportForm = {
-          login: '',
-          repoLinks: [],
-          startDate: '',
-          endDate: ''
-        };
-        this.newRepoLink = '';
         this.clearErrors();
         
         console.log(`Запрос на формирование отчета отправлен. ID процесса: ${processId}`);
