@@ -483,6 +483,17 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 score = общий_анализ.get('overall_score', 'Н/Д')
                 score_text = f"<b>Общая оценка кода:</b> {score}"
                 elements.append(Paragraph(score_text, styles['NormalText']))
+                
+                # Добавляем общую оценку сотрудника, если она есть
+                if "employee_rating" in общий_анализ:
+                    employee_rating = общий_анализ["employee_rating"]
+                    emp_score = employee_rating.get("score", "Н/Д")
+                    elements.append(Paragraph(f"<b>Общая оценка сотрудника:</b> {emp_score}", styles['NormalText']))
+                    
+                    if "description" in employee_rating:
+                        emp_desc = wrap_text(employee_rating["description"])
+                        elements.append(Paragraph(f"<b>Характеристика:</b> {emp_desc}", styles['NormalText']))
+                
                 elements.append(Spacer(1, 5*mm))
                 
                 # Статистика по статусам PR
@@ -531,7 +542,8 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 elements.append(Paragraph("Результаты общего анализа", styles['Heading1']))
                 elements.append(HorizontalLine(450, colors.grey, 1))
                 elements.append(Paragraph("Результаты общего анализа отсутствуют или неполные", styles['NormalText']))
-                elements.append(Paragraph("Возможно, в заданном периоде нет достаточно PR для анализа", styles['NormalText']))
+                elements.append(Paragraph("Возможно, в заданном периоде нет достаточно PR для анализа", styles['NormalText'])
+                )
                 
             # Детальный анализ PR без разбиения на страницы
             if analysis_results.get("детальный_анализ"):

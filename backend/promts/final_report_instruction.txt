@@ -1,10 +1,14 @@
-From the resulting PRs, draw a general conclusion (not abstract, but specific and don't refer to specific methods/variables/classes as this is a general report)
+Пиши на русском. Исходя из полученных PR, сделай общий вывод (не абстрактно, а конкретно и не ссылайся на конкретные методы/переменные/классы, т.к. это общий отчет)
 {
     "overall_score": number,
+    "employee_rating": {
+        "score": number,
+        "description": "Здесь ты пишешь общую оценку сотрудника как разработчика, его сильные и слабые стороны, больше конкретики, обосновывай свое решение"
+    },
     "recurring_issues": [
-        {"issue": "Here you write a general conclusion, by which it will be clear at what level the programmer, who made these PRs, is approximately at"},
+        {"issue": "Здесь ты описываешь макимально понятно часто повторяющиеся проблемы в коде"},
     ],
     "antipatterns": [
-        {"name": "you have to write down the names of the antipatterns you encounter"}
+        {"name": "ты должен выписать названия встречаемых антипаттернов (без примеров)"}
     ]
 }

@@ -330,13 +330,15 @@ export default {
             return false;
           }
         };
-        
-        const interval = setInterval(async () => {
+         
+        const checkStatusLoop = async () => {
           const isDone = await checkStatus();
-          if (isDone) {
-            clearInterval(interval);
+          if (!isDone) {
+            setTimeout(checkStatusLoop, 5000);
           }
-        }, 5000);
+        };
+
+        checkStatusLoop(); 
         
         setTimeout(() => {
           clearInterval(interval);

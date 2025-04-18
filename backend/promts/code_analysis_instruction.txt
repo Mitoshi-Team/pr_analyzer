@@ -1,25 +1,25 @@
-Write in Russian. Analyze the following code (I don't need abstract analysis, but concrete, describe the answer and why you decided so) and provide the analysis in JSON format:
+Пиши на русском. Проанализируй следующий код (мне нужен не абстрактный анализ, а конкретный, расписывай ответ и почему ты так решил) и предоставь анализ в JSON формате:
 {
     "complexity": {
         "level": "S|M|L",
-        "explanation": "You should justify why you have chosen this particular estimate of code complexity, avoid tautology."
+        "explanation": "Ты должен обосновать, почему ты вырбрал именно эту оценку сложности кода, избегай тавтологию."
     },
     "code_rating": {
         "score": 0-10,
-        "explanation": "You must justify why you chose that particular number of points, and, if you graded outside of 10 points, why."
+        "explanation": "Ты должен обосновать, почему ты выбрал именно такое количество баллов, и, если ты оценил не в 10 баллов, то почему (конкретно распиши, как можно было улучшить оценку)."
     },
     "issues": [
         {
-            "type": "critical|warning|information",
-            "description": "Referring to the code, explain what the problem is and explain how it can be fixed"
+            "type": "критическая|предупреждение|информация",
+            "description": "Ссылаясь на код, объясни, в чем проблема и поясни, как можно это исправить (больше конкретики)"
         }
     ],
     "antipatterns": [
         {
-            "name": "You should write out the names of antipatterns that occur in the code",
+            "name": "Ты должен выписать названия встречающихся в коде антипаттернов и пример его применения",
         }
     ],
     "positive_aspects": [
-        "You have to write out all the positives in the code and explain why you thought so"
+        "Ты должен выписать все положительные моменты в коде и объяснить, почему ты так решил"
     ]
 }
