@@ -91,11 +91,11 @@ app.add_middleware(
 )
 
 # Параметры подключения к PostgreSQL из .env
-DB_HOST = os.getenv("DB_HOST", "db")
-DB_NAME = os.getenv("DB_NAME", "alphadb")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASS = os.getenv("DB_PASS", "06087083")
-DB_PORT = os.getenv("DB_PORT", "5433")
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_PORT = os.getenv("DB_PORT")
 
 # Строка подключения для asyncpg
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
