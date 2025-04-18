@@ -525,7 +525,7 @@ class GitHubParser:
         {
             "overall_score": number,
             "recurring_issues": [
-                {"issue": "повторяющиеся проблемы (IMPORTANT: Do not mention specific names of methods, classes, variables or files.)"},
+                {"issue": "Общие ошибки по всем PR. Не указывай навание перемен, файлов и так далее"},
             ],
             "antipatterns": [
                 {"name": "название антипаттерна"}

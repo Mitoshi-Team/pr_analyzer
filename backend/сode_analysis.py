@@ -34,11 +34,11 @@ def __read_input_file(file_path):
 
 # Отправляет запрос к API для анализа кода.
 def send_request_to_api(prompt):
-    instruction = """Проанализируй следующий код или данные и предоставь анализ в JSON формате:
+    instruction = """Пиши на русском.Проанализируй следующий код или данные и предоставь анализ в JSON формате:
 {
     "complexity": {
         "level": "S|M|L",
-        "explanation": "Обоснование выбранной сложности"
+        "explanation": "Обоснование выбранной сложности. Не нужна расшифровывать level"
     },
     "code_rating": {
         "score": 0-10,
@@ -52,7 +52,7 @@ def send_request_to_api(prompt):
     ],
     "antipatterns": [
         {
-            "name": "Название антипаттерна"
+            "name": "Название антипаттерна(Пиши на английском)",
         }
     ],
     "positive_aspects": [
