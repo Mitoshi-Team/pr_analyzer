@@ -326,34 +326,40 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                                  fontName='DejaVuSans', 
                                  fontSize=10,
                                  spaceAfter=1*mm,
-                                 textColor=colors.black))
+                                 textColor=colors.black,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='List', 
                                  fontName='DejaVuSans', 
                                  fontSize=10,
                                  leftIndent=10*mm,
-                                 spaceAfter=1*mm))
+                                 spaceAfter=1*mm,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='SubList', 
                                  fontName='DejaVuSans', 
                                  fontSize=10,
                                  leftIndent=20*mm,
-                                 spaceAfter=1*mm))
+                                 spaceAfter=1*mm,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='StatusOpen', 
                                  fontName='DejaVuSans-Bold', 
                                  fontSize=10,
-                                 textColor=colors.blue))
+                                 textColor=colors.blue,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='StatusMerged', 
                                  fontName='DejaVuSans-Bold', 
                                  fontSize=10,
-                                 textColor=colors.green))
+                                 textColor=colors.green,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='StatusRejected', 
                                  fontName='DejaVuSans-Bold', 
                                  fontSize=10,
-                                 textColor=colors.red))
+                                 textColor=colors.red,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         # Создаем список элементов документа
         elements = []
@@ -371,11 +377,50 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 self.canv.setLineWidth(self.thickness)
                 self.canv.line(0, 0, self.width, 0)
         
-        # Вспомогательная функция для разбиения длинных строк
-        def wrap_text(text, max_width=100):  # Увеличиваем максимальную длину строки
+        # Улучшенная вспомогательная функция для разбиения длинных строк
+        def wrap_text(text, max_width=80):
+            """
+            Разбивает текст на строки с учетом особенностей русского языка.
+            Предотвращает разрывы слов в неподходящих местах.
+            
+            Args:
+                text (str): Исходный текст для разбиения
+                max_width (int): Максимальная длина строки
+                
+            Returns:
+                str: Текст с HTML-тегами переноса строк
+            """
+            if not text:
+                return ""
+            
             if len(text) <= max_width:
                 return text
-            return "<br/>".join(textwrap.wrap(text, max_width))
+            
+            # Разбиваем текст на слова
+            words = text.split()
+            lines = []
+            current_line = []
+            current_length = 0
+            
+            for word in words:
+                # Если добавление слова не превышает лимит или строка пуста
+                if current_length + len(word) + (1 if current_length > 0 else 0) <= max_width or not current_line:
+                    if current_line:  # Если строка не пуста, добавляем пробел
+                        current_length += 1  # учитываем пробел
+                    current_line.append(word)
+                    current_length += len(word)
+                else:
+                    # Сохраняем текущую строку и начинаем новую
+                    lines.append(" ".join(current_line))
+                    current_line = [word]
+                    current_length = len(word)
+            
+            # Добавляем последнюю строку, если она не пуста
+            if current_line:
+                lines.append(" ".join(current_line))
+            
+            # Соединяем строки с HTML-тегом переноса
+            return "<br/>".join(lines)
         
         # Функция для получения стиля в зависимости от статуса PR
         def get_status_style(status):
@@ -420,7 +465,6 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
             elements.append(Paragraph(f"- {repo_link}", styles['List']))
         
         elements.append(Spacer(1, 10*mm))
-        elements.append(HorizontalLine(450, colors.darkgrey, 2))
         elements.append(PageBreak())
         
         # Определяем содержимое отчета
@@ -433,6 +477,7 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
             if общий_анализ:
                 elements.append(Paragraph("Общий анализ кода", styles['Heading1']))
                 elements.append(HorizontalLine(450, colors.grey, 1))
+                elements.append(Spacer(1, 5*mm))
                 
                 # Общая оценка
                 score = общий_анализ.get('overall_score', 'Н/Д')
