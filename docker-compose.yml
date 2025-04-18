@@ -16,6 +16,9 @@ services:
         condition: service_started
     networks:
       - app-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
 
   vllm:
     image: vllm/vllm-openai:latest
