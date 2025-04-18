@@ -565,7 +565,7 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 if pr['pr_info'].get('commits'):
                     elements.append(Paragraph("Коммиты:", styles['Heading2']))
                     for commit in pr['pr_info']['commits']:
-                        commit_text = wrap_text(f"- {commit['message']} ({commit['sha'][:7]})")
+                        commit_text = wrap_text(f"- {commit['message']}")
                         elements.append(Paragraph(commit_text, styles['List']))
                 
                 # Разделитель между PR

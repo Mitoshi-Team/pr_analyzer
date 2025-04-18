@@ -479,14 +479,14 @@ class GitHubParser:
         print(f"Полный отчет сохранен в {full_report_path}")
 
     def generate_final_report(self, prs_analysis_data):
-        instruction = """Проанализируй данные по всем PR и создай итоговый отчет в следующем формате. 
+        instruction = """Создай обобщенный итоговый отчет по всем PR
         {
             "overall_score": number,
             "recurring_issues": [
-                {"issue": "общее описание проблемы, do not specify the name of methods, classes, files, etc."},
+                {"issue": "повторяющиеся проблемы (IMPORTANT: Do not mention specific names of methods, classes, variables or files.)"},
             ],
             "antipatterns": [
-                {"name": "название антипаттерна и его общее описание"}
+                {"name": "название антипаттерна"}
             ]
         }"""
         

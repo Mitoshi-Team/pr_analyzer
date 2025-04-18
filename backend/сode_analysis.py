@@ -38,7 +38,7 @@ def send_request_to_api(prompt):
 {
     "complexity": {
         "level": "S|M|L",
-        "explanation": "Объяснение оценки сложности"
+        "explanation": "Обоснование выбранной сложности"
     },
     "code_rating": {
         "score": 0-10,
@@ -59,6 +59,10 @@ def send_request_to_api(prompt):
         "Описание положительного аспекта"
     ]
 }"""
+ # Проверяем, не является ли код файлом из папки .github
+    if "/github/" in prompt.lower() or "\\.github\\" in prompt.lower():
+        print("Пропуск анализа файла из папки .github")
+        return {"choices": [{"message": {"content": "{}"}}]}
 
     # Ограничиваем размер промпта, чтобы избежать превышения токенов (приблизительно)
     max_prompt_chars = 20000  # Примерное ограничение на символы для безопасности
