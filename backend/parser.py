@@ -369,7 +369,7 @@ class GitHubParser:
             save_to (str, optional): Путь для сохранения данных. По умолчанию "analysis_report.json".
             
         Returns:
-            dict: Сводный анализ по всем репозиториям, или None если PR не найдены.
+            dict: Сводный анализ по всем репозиториям, или словарь с информацией об ошибках если PR не найдены.
         """
         # Проверяем, что передан список ссылок
         if not repo_links:
@@ -387,6 +387,11 @@ class GitHubParser:
         all_prs_data = []
         all_prs_analysis_data = []
         
+        # Списки для отслеживания ошибок
+        repos_not_found = []
+        repos_no_pr = []
+        repos_no_author_pr = []
+        
         # Паттерн для извлечения owner/repo из ссылки GitHub
         github_pattern = r"https://github\.com/([^/]+)/([^/]+)"
         
@@ -396,6 +401,7 @@ class GitHubParser:
             match = re.match(github_pattern, repo_link)
             if not match:
                 print(f"Неправильный формат ссылки на репозиторий: {repo_link}")
+                repos_not_found.append(repo_link)
                 continue
                 
             owner, repo = match.groups()
@@ -403,48 +409,74 @@ class GitHubParser:
             print(f"Анализ репозитория: {owner}/{repo}")
             
             # Получаем PR данные
-            prs_data = self.parse_prs(owner, repo, start_date, end_date, author_login)
-            
-            # Проверяем есть ли PR
-            if not prs_data:
-                print(f"Предупреждение: PR не найдены для репозитория {owner}/{repo}")
-                if author_login:
-                    print(f"с логином: {author_login}")
-                if start_date or end_date:
-                    print(f"за период: {start_date or 'начало'} - {end_date or 'конец'}")
-                continue
-            
-            # Выводим список полученных PR
-            print(f"\nСписок полученных PR для репозитория {owner}/{repo}:")
-            for i, pr in enumerate(prs_data, 1):
-                print(f"{i}. PR #{pr['id_pr']} от {pr['created_at']} - Автор: {pr['author']} - {pr['link']}")
-            print(f"Всего получено PR: {len(prs_data)}\n")
-            
-            all_prs_data.extend(prs_data)
-            
-            # Собираем данные по всем PR текущего репозитория для отправки в ИИ
-            for pr in prs_data:
-                analysis_file = os.path.join(analysis_dir, f"pr_{pr['id_pr']}_analysis.json")
-                try:
-                    with open(analysis_file, 'r', encoding='utf-8') as f:
-                        analysis = json.load(f)
-                        analysis['pr_info'] = {
-                            'id': pr['id_pr'],
-                            'author': pr['author'],
-                            'link': pr['link'],
-                            'created_at': pr['created_at'],
-                            'repository': f"{owner}/{repo}"
-                        }
-                        all_prs_analysis_data.append(analysis)
-                except FileNotFoundError:
-                    print(f"Файл анализа не найден для PR #{pr['id_pr']}")
+            try:
+                prs_data = self.parse_prs(owner, repo, start_date, end_date, author_login)
+                
+                # Проверяем есть ли PR
+                if not prs_data:
+                    print(f"Предупреждение: PR не найдены для репозитория {owner}/{repo}")
+                    if author_login:
+                        print(f"с логином: {author_login}")
+                        repos_no_author_pr.append(f"{owner}/{repo}")
+                    else:
+                        repos_no_pr.append(f"{owner}/{repo}")
                     continue
+                
+                # Выводим список полученных PR
+                print(f"\nСписок полученных PR для репозитория {owner}/{repo}:")
+                for i, pr in enumerate(prs_data, 1):
+                    print(f"{i}. PR #{pr['id_pr']} от {pr['created_at']} - Автор: {pr['author']} - {pr['link']}")
+                print(f"Всего получено PR: {len(prs_data)}\n")
+                
+                all_prs_data.extend(prs_data)
+                
+                # Собираем данные по всем PR текущего репозитория для отправки в ИИ
+                for pr in prs_data:
+                    analysis_file = os.path.join(analysis_dir, f"pr_{pr['id_pr']}_analysis.json")
+                    try:
+                        with open(analysis_file, 'r', encoding='utf-8') as f:
+                            analysis = json.load(f)
+                            analysis['pr_info'] = {
+                                'id': pr['id_pr'],
+                                'author': pr['author'],
+                                'link': pr['link'],
+                                'created_at': pr['created_at'],
+                                'repository': f"{owner}/{repo}"
+                            }
+                            all_prs_analysis_data.append(analysis)
+                    except FileNotFoundError:
+                        print(f"Файл анализа не найден для PR #{pr['id_pr']}")
+                        continue
+            except requests.exceptions.HTTPError as e:
+                if hasattr(e.response, 'status_code') and e.response.status_code == 404:
+                    print(f"Репозиторий {owner}/{repo} не найден или доступ ограничен.")
+                    repos_not_found.append(f"{owner}/{repo}")
+                else:
+                    print(f"HTTP ошибка при обращении к репозиторию {owner}/{repo}: {str(e)}")
+            except Exception as e:
+                print(f"Ошибка при анализе репозитория {owner}/{repo}: {str(e)}")
         
         # Проверяем есть ли данные для анализа
         if not all_prs_analysis_data:
             print("Предупреждение: Нет данных для анализа PR во всех указанных репозиториях")
             
-            # Создаем пустой отчет вместо возврата None
+            # Создаем более информативный пустой отчет
+            error_messages = []
+            
+            if repos_not_found:
+                error_messages.append(f"Следующие репозитории не найдены или доступ к ним ограничен: {', '.join(repos_not_found)}")
+            
+            if repos_no_pr:
+                error_messages.append(f"Следующие репозитории не содержат PR: {', '.join(repos_no_pr)}")
+            
+            if repos_no_author_pr:
+                error_messages.append(f"Следующие репозитории не содержат PR от пользователя {author_login}: {', '.join(repos_no_author_pr)}")
+            
+            if not error_messages and author_login:
+                error_messages.append(f"Не найдены PR от пользователя {author_login} за указанный период")
+            elif not error_messages:
+                error_messages.append("Не найдены PR за указанный период")
+            
             empty_report = {
                 "overall_score": "N/A",
                 "recurring_issues": [],
@@ -454,6 +486,10 @@ class GitHubParser:
                     "merged": 0,
                     "rejected": 0,
                     "total": 0
+                },
+                "error_details": {
+                    "message": "Не удалось найти данные для анализа",
+                    "details": error_messages
                 }
             }
             

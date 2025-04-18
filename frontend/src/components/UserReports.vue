@@ -289,11 +289,45 @@ export default {
               
               await this.fetchReports();
               
+              // Для завершенных отчетов проверяем наличие ошибок анализа
+              try {
+                const reportResponse = await axios.get(`/api/reports/${report_id}/analysis`);
+                
+                // Проверяем наличие информации об ошибках в отчете
+                if (reportResponse.data && reportResponse.data.error_details) {
+                  const errorDetails = reportResponse.data.error_details;
+                  let errorMessage = errorDetails.message + "\n\nПричины:\n";
+                  
+                  // Добавляем каждую причину ошибки в сообщение
+                  errorDetails.details.forEach(detail => {
+                    errorMessage += `- ${detail}\n`;
+                  });
+                  
+                  errorMessage += "\nРекомендации:\n";
+                  errorMessage += "- Убедитесь, что указан правильный логин пользователя на GitHub\n";
+                  errorMessage += "- Проверьте доступность указанных репозиториев\n";
+                  errorMessage += "- Убедитесь, что в указанном периоде времени есть PR";
+                  
+                  // Выводим сообщение в alert
+                  alert(errorMessage);
+                  return true;
+                }
+              } catch (error) {
+                console.log("Информация об ошибках анализа недоступна:", error);
+              }
+              
               alert(`Отчет для ${login} успешно сформирован и доступен для скачивания!`);
               return true;
             } else if (status === 'failed') {
               this.loading = false;
-              alert(`Не удалось сформировать отчет: ${message}`);
+              
+              // Проверяем, содержит ли сообщение об ошибке информацию о PR/репозиториях/авторах
+              if (message.includes("не найдены") || message.includes("не существует") || 
+                  message.includes("не содержат PR") || message.includes("не найден")) {
+                alert(`Ошибка при формировании отчета: ${message}\n\nПроверьте правильность логина и доступность репозиториев.`);
+              } else {
+                alert(`Не удалось сформировать отчет: ${message}`);
+              }
               return true;
             }
             
