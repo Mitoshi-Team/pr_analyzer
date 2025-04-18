@@ -1,7 +1,7 @@
 <template>
   <div id="app">
     <header class="app-header">
-      <h1>Система анализа кода АльфаСтрахование</h1>
+      <h1>Система анализа кода</h1>
     </header>
     
     <main class="app-content">

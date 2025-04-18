@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 # Загружаем переменные из .env файла
 load_dotenv()
 
-API_URL = os.getenv("API_URL") 
+BACKEND_PORT = os.getenv("BACKEND_PORT")
+API_URL = f"http://vllm:{BACKEND_PORT}/v1/chat/completions"
 
 # Получаем название модели из .env
 MODEL = os.getenv("MODEL_NAME")

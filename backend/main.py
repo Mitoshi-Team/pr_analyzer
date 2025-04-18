@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import Paragraph, Spacer, PageBreak
+from reportlab.platypus import Paragraph, Spacer, PageBreak, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.platypus.flowables import Flowable
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
@@ -91,11 +91,11 @@ app.add_middleware(
 )
 
 # Параметры подключения к PostgreSQL из .env
-DB_HOST = os.getenv("DB_HOST", "db")
-DB_NAME = os.getenv("DB_NAME", "alphadb")
-DB_USER = os.getenv("DB_USER", "postgres")
-DB_PASS = os.getenv("DB_PASS", "06087083")
-DB_PORT = os.getenv("DB_PORT", "5433")
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_PORT = os.getenv("DB_PORT")
 
 # Строка подключения для asyncpg
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
@@ -256,9 +256,24 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
             save_to="analysis_report.json"
         )
         
-        # Проверяем, получен ли результат анализа
+        # Проверяем, получен ли результат анализа и есть ли в нём ошибки
         if not analysis_results:
             print("Предупреждение: анализатор не вернул результаты для PR")
+            report_status[process_id]["status"] = "failed"
+            report_status[process_id]["message"] = "Не удалось получить результаты анализа"
+            return
+        
+        # Проверяем, есть ли ошибки в результатах анализа
+        if "error_details" in analysis_results:
+            error_details = analysis_results["error_details"]
+            error_message = error_details["message"]
+            details = "; ".join(error_details.get("details", []))
+            
+            # Обновляем статус на ошибку и прерываем выполнение
+            report_status[process_id]["status"] = "failed"
+            report_status[process_id]["message"] = f"{error_message}: {details}"
+            print(f"Анализ PR завершился с ошибками: {error_message}: {details}")
+            return
             
         # Обновляем статус
         report_status[process_id]["message"] = "Анализ PR завершен, формирование PDF"
@@ -269,7 +284,6 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                                rightMargin=20*mm, leftMargin=20*mm,
                                topMargin=20*mm, bottomMargin=20*mm)
         
-        # [весь код формирования PDF остается без изменений]
         # Создаем стили для текста
         styles = getSampleStyleSheet()
         
@@ -312,34 +326,40 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                                  fontName='DejaVuSans', 
                                  fontSize=10,
                                  spaceAfter=1*mm,
-                                 textColor=colors.black))
+                                 textColor=colors.black,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='List', 
                                  fontName='DejaVuSans', 
                                  fontSize=10,
                                  leftIndent=10*mm,
-                                 spaceAfter=1*mm))
+                                 spaceAfter=1*mm,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='SubList', 
                                  fontName='DejaVuSans', 
                                  fontSize=10,
                                  leftIndent=20*mm,
-                                 spaceAfter=1*mm))
+                                 spaceAfter=1*mm,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='StatusOpen', 
                                  fontName='DejaVuSans-Bold', 
                                  fontSize=10,
-                                 textColor=colors.blue))
+                                 textColor=colors.blue,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='StatusMerged', 
                                  fontName='DejaVuSans-Bold', 
                                  fontSize=10,
-                                 textColor=colors.green))
+                                 textColor=colors.green,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         styles.add(ParagraphStyle(name='StatusRejected', 
                                  fontName='DejaVuSans-Bold', 
                                  fontSize=10,
-                                 textColor=colors.red))
+                                 textColor=colors.red,
+                                 allowMarkup=1))  # Добавляем поддержку HTML-разметки
         
         # Создаем список элементов документа
         elements = []
@@ -357,9 +377,50 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 self.canv.setLineWidth(self.thickness)
                 self.canv.line(0, 0, self.width, 0)
         
-        # Вспомогательная функция для разбиения длинных строк
+        # Улучшенная вспомогательная функция для разбиения длинных строк
         def wrap_text(text, max_width=80):
-            return "<br/>".join(textwrap.wrap(text, max_width))
+            """
+            Разбивает текст на строки с учетом особенностей русского языка.
+            Предотвращает разрывы слов в неподходящих местах.
+            
+            Args:
+                text (str): Исходный текст для разбиения
+                max_width (int): Максимальная длина строки
+                
+            Returns:
+                str: Текст с HTML-тегами переноса строк
+            """
+            if not text:
+                return ""
+            
+            if len(text) <= max_width:
+                return text
+            
+            # Разбиваем текст на слова
+            words = text.split()
+            lines = []
+            current_line = []
+            current_length = 0
+            
+            for word in words:
+                # Если добавление слова не превышает лимит или строка пуста
+                if current_length + len(word) + (1 if current_length > 0 else 0) <= max_width or not current_line:
+                    if current_line:  # Если строка не пуста, добавляем пробел
+                        current_length += 1  # учитываем пробел
+                    current_line.append(word)
+                    current_length += len(word)
+                else:
+                    # Сохраняем текущую строку и начинаем новую
+                    lines.append(" ".join(current_line))
+                    current_line = [word]
+                    current_length = len(word)
+            
+            # Добавляем последнюю строку, если она не пуста
+            if current_line:
+                lines.append(" ".join(current_line))
+            
+            # Соединяем строки с HTML-тегом переноса
+            return "<br/>".join(lines)
         
         # Функция для получения стиля в зависимости от статуса PR
         def get_status_style(status):
@@ -382,7 +443,15 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
             print(f"Ошибка при чтении файла анализа: {str(e)}")
             analysis_results = None
         
-        # Добавляем титульную страницу
+        # Добавляем логотип и титульную страницу
+        logo_path = os.path.join(os.path.dirname(__file__), "images", "logo.png")
+        if os.path.exists(logo_path):
+            # Добавляем логотип с центрированием
+            logo = Image(logo_path, width=300, height=100)
+            logo.hAlign = 'CENTER'
+            elements.append(logo)
+            elements.append(Spacer(1, 10*mm))
+        
         elements.append(Paragraph(f"Отчет об оценке качества кода", styles['Title']))
         elements.append(Spacer(1, 10*mm))
         elements.append(Paragraph(f"<b>Логин пользователя:</b> {report_req.login}", styles['NormalText']))
@@ -396,16 +465,19 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
             elements.append(Paragraph(f"- {repo_link}", styles['List']))
         
         elements.append(Spacer(1, 10*mm))
-        elements.append(HorizontalLine(450, colors.darkgrey, 2))
         elements.append(PageBreak())
         
         # Определяем содержимое отчета
         if analysis_results and "общий_анализ" in analysis_results:
             общий_анализ = analysis_results["общий_анализ"]
             
+            # В этом месте больше не проверяем наличие ошибок в общий_анализ,
+            # так как мы уже отфильтровали отчеты с ошибками выше
+                
             if общий_анализ:
                 elements.append(Paragraph("Общий анализ кода", styles['Heading1']))
                 elements.append(HorizontalLine(450, colors.grey, 1))
+                elements.append(Spacer(1, 5*mm))
                 
                 # Общая оценка
                 score = общий_анализ.get('overall_score', 'Н/Д')
@@ -461,83 +533,79 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 elements.append(Paragraph("Результаты общего анализа отсутствуют или неполные", styles['NormalText']))
                 elements.append(Paragraph("Возможно, в заданном периоде нет достаточно PR для анализа", styles['NormalText']))
                 
-            # Детальный анализ PR с разбиением на отдельные страницы
-            elements.append(PageBreak())
-            elements.append(Paragraph("Детальный анализ Pull Requests", styles['Heading1']))
-            elements.append(HorizontalLine(450, colors.grey, 1))
-            
-            for i, pr in enumerate(analysis_results.get("детальный_анализ", [])):
-                # Если не первый PR, добавляем разрыв страницы
-                if i > 0:
-                    elements.append(PageBreak())
+            # Детальный анализ PR без разбиения на страницы
+            if analysis_results.get("детальный_анализ"):
+                elements.append(PageBreak())
+                elements.append(Paragraph("Детальный анализ Pull Requests", styles['Heading1']))
+                elements.append(HorizontalLine(450, colors.grey, 1))
                 
-                pr_id = pr['pr_info']['id']
-                pr_status = pr['pr_info'].get('status', 'open')
-                
-                # Отображение заголовка PR с его статусом
-                status_text = ""
-                if pr_status == "open":
-                    status_text = " [В РАБОТЕ]"
-                elif pr_status == "merged":
-                    status_text = " [ПРИНЯТ]"
-                elif pr_status == "rejected":
-                    status_text = " [ОТКЛОНЕН]"
-                
-                elements.append(Paragraph(f"PR #{pr_id}{status_text}", styles['Heading2']))
-                
-                # Основная информация о PR в форме таблицы
-                data = [
-                    ["Автор:", pr['pr_info']['author']],
-                    ["Создан:", pr['pr_info']['created_at']],
-                    ["Статус:", pr_status]
-                ]
-                
-                # Добавляем даты закрытия и слияния, если есть
-                if pr['pr_info'].get('closed_at'):
-                    data.append(["Закрыт:", pr['pr_info']['closed_at']])
-                if pr['pr_info'].get('merged_at'):
-                    data.append(["Принят:", pr['pr_info']['merged_at']])
-                
-                data.append(["Репозиторий:", pr['pr_info']['repository']])
-                data.append(["Ссылка:", pr['pr_info']['link']])
-                
-                # Создание таблицы
-                t = Table(data, colWidths=[100, 330])
-                t.setStyle(TableStyle([
-                    ('FONTNAME', (0, 0), (0, -1), 'DejaVuSans-Bold'),
-                    ('FONTNAME', (1, 0), (1, -1), 'DejaVuSans'),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-                    ('TOPPADDING', (0, 0), (-1, -1), 3),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    # Выделяем статус цветом
-                    ('TEXTCOLOR', (1, 2), (1, 2), 
-                     colors.blue if pr_status == "open" else
-                     colors.green if pr_status == "merged" else
-                     colors.red)
-                ]))
-                elements.append(t)
-                elements.append(Spacer(1, 5*mm))
-                
-                # Данные о сложности и оценке
-                if "complexity" in pr:
-                    complexity_text = f"<b>Сложность:</b> {pr['complexity']['level']} - {wrap_text(pr['complexity']['explanation'])}"
-                    elements.append(Paragraph(complexity_text, styles['NormalText']))
-                
-                if "code_rating" in pr:
-                    rating_text = f"<b>Оценка кода:</b> {pr['code_rating']['score']}/10"
-                    elements.append(Paragraph(rating_text, styles['NormalText']))
-                    explanation_text = f"<b>Пояснение:</b> {wrap_text(pr['code_rating']['explanation'])}"
-                    elements.append(Paragraph(explanation_text, styles['NormalText']))
-                
-                elements.append(Spacer(1, 3*mm))
-                
-                # Проблемы
-                if pr.get("issues"):
-                    elements.append(Paragraph("Проблемы:", styles['Heading2']))
-                    for issue in pr["issues"]:
-                        issue_text = wrap_text(f"- [{issue['type']}] {issue['description']}")
-                        elements.append(Paragraph(issue_text, styles['List']))
+                for i, pr in enumerate(analysis_results.get("детальный_анализ", [])):
+                    # Добавляем разделитель между PR, но не PageBreak
+                    if i > 0:
+                        elements.append(Spacer(1, 10*mm))
+                        elements.append(HorizontalLine(450, colors.grey, 1))
+                        elements.append(Spacer(1, 5*mm))
+                    
+                    pr_id = pr['pr_info']['id']
+                    pr_status = pr['pr_info'].get('status', 'open')
+                    
+                    # Отображение заголовка PR с его статусом
+                    status_text = ""
+                    if pr_status == "open":
+                        status_text = " [В РАБОТЕ]"
+                    elif pr_status == "merged":
+                        status_text = " [ПРИНЯТ]"
+                    elif pr_status == "rejected":
+                        status_text = " [ОТКЛОНЕН]"
+                    
+                    elements.append(Paragraph(f"PR #{pr_id}{status_text}", styles['Heading2']))
+                    
+                    # Основная информация о PR в форме таблицы
+                    data = [
+                        ["Автор:", pr['pr_info']['author']],
+                        ["Создан:", pr['pr_info']['created_at']],
+                        ["Статус:", pr_status]
+                    ]
+                    
+                    # Добавляем даты закрытия и слияния, если есть
+                    if pr['pr_info'].get('closed_at'):
+                        data.append(["Закрыт:", pr['pr_info']['closed_at']])
+                    if pr['pr_info'].get('merged_at'):
+                        data.append(["Принят:", pr['pr_info']['merged_at']])
+                    
+                    data.append(["Репозиторий:", pr['pr_info']['repository']])
+                    data.append(["Ссылка:", pr['pr_info']['link']])
+                    
+                    # Создание таблицы
+                    t = Table(data, colWidths=[100, 330])
+                    t.setStyle(TableStyle([
+                        ('FONTNAME', (0, 0), (0, -1), 'DejaVuSans-Bold'),
+                        ('FONTNAME', (1, 0), (1, -1), 'DejaVuSans'),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                        ('TOPPADDING', (0, 0), (-1, -1), 3),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        # Выделяем статус цветом
+                        ('TEXTCOLOR', (1, 2), (1, 2), 
+                         colors.blue if pr_status == "open" else
+                         colors.green if pr_status == "merged" else
+                         colors.red)
+                    ]))
+                    elements.append(t)
+                    elements.append(Spacer(1, 5*mm))
+                    
+                    # Данные о сложности и оценке
+                    if "complexity" in pr:
+                        complexity_text = f"<b>Сложность:</b> {pr['complexity']['level']} - {wrap_text(pr['complexity']['explanation'])}"
+                        elements.append(Paragraph(complexity_text, styles['NormalText']))
+                    
+                    if "code_rating" in pr:
+                        rating_text = f"<b>Оценка кода:</b> {pr['code_rating']['score']}/10"
+                        elements.append(Paragraph(rating_text, styles['NormalText']))
+                        explanation_text = f"<b>Пояснение:</b> {wrap_text(pr['code_rating']['explanation'])}"
+                        elements.append(Paragraph(explanation_text, styles['NormalText']))
+                    
                     elements.append(Spacer(1, 3*mm))
+<<<<<<< HEAD
                 
                 # Антипаттерны
                 if pr.get("antipatterns"):
@@ -567,14 +635,59 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 # Разделитель между PR
                 elements.append(Spacer(1, 5*mm))
                 elements.append(HorizontalLine(450, colors.lightgrey, 1))
+=======
+                    
+                    # Проблемы
+                    if pr.get("issues"):
+                        elements.append(Paragraph("Проблемы:", styles['Heading2']))
+                        for issue in pr["issues"]:
+                            issue_text = wrap_text(f"- [{issue['type']}] {issue['description']}")
+                            elements.append(Paragraph(issue_text, styles['List']))
+                        elements.append(Spacer(1, 3*mm))
+                    
+                    # Антипаттерны
+                    if pr.get("antipatterns"):
+                        elements.append(Paragraph("Антипаттерны:", styles['Heading2']))
+                        for pattern in pr["antipatterns"]:
+                            if isinstance(pattern, dict) and "name" in pattern:
+                                pattern_text = wrap_text(f"- {pattern['name']}")
+                            else:
+                                pattern_text = wrap_text(f"- {pattern}")
+                            elements.append(Paragraph(pattern_text, styles['List']))
+                        elements.append(Spacer(1, 3*mm))
+                    
+                    # Положительные моменты
+                    if pr.get("positive_aspects"):
+                        elements.append(Paragraph("Положительные моменты:", styles['Heading2']))
+                        for pos in pr["positive_aspects"]:
+                            if isinstance(pos, dict) and "description" in pos:
+                                pos_text = wrap_text(f"- {pos['description']}")
+                            else:
+                                pos_text = wrap_text(f"- {pos}")
+                            elements.append(Paragraph(pos_text, styles['List']))
+                        elements.append(Spacer(1, 3*mm))
+                    
+                    # Коммиты
+                    if pr['pr_info'].get('commits'):
+                        elements.append(Paragraph("Коммиты:", styles['Heading2']))
+                        for commit in pr['pr_info']['commits']:
+                            commit_text = wrap_text(f"- {commit['message']}")
+                            elements.append(Paragraph(commit_text, styles['List']))
+>>>>>>> 56c54ac22963f013e88f1319bc265c492d307d95
         else:
+            # Эта часть кода не будет выполняться, так как мы уже отфильтровали отчеты с ошибками выше
             elements.append(Paragraph("Данные анализа не найдены", styles['Heading1']))
             elements.append(HorizontalLine(450, colors.grey, 1))
             elements.append(Paragraph("Возможные причины:", styles['Heading2']))
             elements.append(Paragraph("- Файл анализа не существует или поврежден", styles['List']))
             elements.append(Paragraph("- Нет PR в указанном периоде", styles['List']))
+            elements.append(Paragraph("- Указанный репозиторий не существует или к нему нет доступа", styles['List']))
             elements.append(Paragraph("- PR не принадлежат указанному пользователю", styles['List']))
             elements.append(Paragraph(f"Проверьте логин пользователя: {report_req.login}", styles['NormalText']))
+            elements.append(Paragraph(f"Проверьте указанные репозитории:", styles['NormalText']))
+            for repo_link in report_req.repoLinks:
+                elements.append(Paragraph(f"- {repo_link}", styles['List']))
+            elements.append(Paragraph(f"Проверьте указанный период: с {report_req.startDate} по {report_req.endDate}", styles['NormalText']))
         
         # Сборка документа
         doc.build(elements)
@@ -600,12 +713,36 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 
                 if not table_exists:
                     print("Таблица code_review_reports не существует, создаем...")
+                    # Проверяем существование последовательности
+                    seq_check = await session.execute(text("""
+                        SELECT EXISTS (
+                            SELECT FROM information_schema.sequences 
+                            WHERE sequence_schema = 'public'
+                            AND sequence_name = 'code_review_reports_id_seq'
+                        )
+                    """))
+                    seq_exists = seq_check.scalar()
+                    
+                    # Создаем последовательность, если её нет
+                    if not seq_exists:
+                        await session.execute(text("""
+                            CREATE SEQUENCE public.code_review_reports_id_seq
+                            INCREMENT 1
+                            START 1
+                            MINVALUE 1
+                            MAXVALUE 2147483647
+                            CACHE 1;
+                        """))
+                    
+                    # Создаем таблицу с правильной структурой
                     await session.execute(text("""
-                        CREATE TABLE IF NOT EXISTS code_review_reports (
-                            id BIGINT PRIMARY KEY,
-                            email VARCHAR(255) NOT NULL,
-                            creation_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                            file_data BYTEA NOT NULL
+                        CREATE TABLE IF NOT EXISTS public.code_review_reports
+                        (
+                        id integer NOT NULL DEFAULT nextval('code_review_reports_id_seq'::regclass),
+                        email text COLLATE pg_catalog."default" NOT NULL,
+                        creation_date timestamp without time zone NOT NULL,
+                        file_data bytea NOT NULL,
+                        CONSTRAINT code_review_reports_pkey PRIMARY KEY (id)
                         )
                     """))
                     await session.commit()
@@ -793,6 +930,50 @@ async def download_report(report_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка при скачивании отчета: {str(e)}")
+
+@app.get("/reports/{report_id}/analysis")
+async def get_report_analysis(report_id: str):
+    """
+    Получение информации о результатах анализа отчета, включая ошибки.
+    
+    Args:
+        report_id (str): Идентификатор отчета.
+        
+    Returns:
+        dict: Результаты анализа или информация об ошибках.
+    """
+    try:
+        # Загружаем результаты анализа из файла
+        analysis_file = os.path.join(os.path.dirname(__file__), "pr_files", "analysis_report.json")
+        
+        try:
+            with open(analysis_file, 'r', encoding='utf-8') as f:
+                analysis_data = json.load(f)
+                
+                # Проверяем наличие информации об ошибках
+                if "error_details" in analysis_data:
+                    return analysis_data
+                
+                # Возвращаем базовую информацию для успешного анализа
+                return {
+                    "overall_score": analysis_data.get("overall_score", "N/A"),
+                    "has_errors": False
+                }
+                
+        except FileNotFoundError:
+            return {
+                "error_details": {
+                    "message": "Данные анализа не найдены",
+                    "details": ["Файл анализа не существует или поврежден"]
+                }
+            }
+    except Exception as e:
+        return {
+            "error_details": {
+                "message": "Ошибка при получении результатов анализа",
+                "details": [str(e)]
+            }
+        }
 
 @app.on_event("shutdown")
 async def shutdown():
