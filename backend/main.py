@@ -10,7 +10,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import Paragraph, Spacer, PageBreak
+from reportlab.platypus import Paragraph, Spacer, PageBreak, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.platypus.flowables import Flowable
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
@@ -284,7 +284,6 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                                rightMargin=20*mm, leftMargin=20*mm,
                                topMargin=20*mm, bottomMargin=20*mm)
         
-        # [весь код формирования PDF остается без изменений]
         # Создаем стили для текста
         styles = getSampleStyleSheet()
         
@@ -373,7 +372,9 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 self.canv.line(0, 0, self.width, 0)
         
         # Вспомогательная функция для разбиения длинных строк
-        def wrap_text(text, max_width=80):
+        def wrap_text(text, max_width=100):  # Увеличиваем максимальную длину строки
+            if len(text) <= max_width:
+                return text
             return "<br/>".join(textwrap.wrap(text, max_width))
         
         # Функция для получения стиля в зависимости от статуса PR
@@ -397,7 +398,15 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
             print(f"Ошибка при чтении файла анализа: {str(e)}")
             analysis_results = None
         
-        # Добавляем титульную страницу
+        # Добавляем логотип и титульную страницу
+        logo_path = os.path.join(os.path.dirname(__file__), "images", "logo.png")
+        if os.path.exists(logo_path):
+            # Добавляем логотип с центрированием
+            logo = Image(logo_path, width=300, height=100)
+            logo.hAlign = 'CENTER'
+            elements.append(logo)
+            elements.append(Spacer(1, 10*mm))
+        
         elements.append(Paragraph(f"Отчет об оценке качества кода", styles['Title']))
         elements.append(Spacer(1, 10*mm))
         elements.append(Paragraph(f"<b>Логин пользователя:</b> {report_req.login}", styles['NormalText']))
@@ -479,16 +488,18 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 elements.append(Paragraph("Результаты общего анализа отсутствуют или неполные", styles['NormalText']))
                 elements.append(Paragraph("Возможно, в заданном периоде нет достаточно PR для анализа", styles['NormalText']))
                 
-            # Детальный анализ PR с разбиением на отдельные страницы
+            # Детальный анализ PR без разбиения на страницы
             if analysis_results.get("детальный_анализ"):
                 elements.append(PageBreak())
                 elements.append(Paragraph("Детальный анализ Pull Requests", styles['Heading1']))
                 elements.append(HorizontalLine(450, colors.grey, 1))
                 
                 for i, pr in enumerate(analysis_results.get("детальный_анализ", [])):
-                    # Если не первый PR, добавляем разрыв страницы
+                    # Добавляем разделитель между PR, но не PageBreak
                     if i > 0:
-                        elements.append(PageBreak())
+                        elements.append(Spacer(1, 10*mm))
+                        elements.append(HorizontalLine(450, colors.grey, 1))
+                        elements.append(Spacer(1, 5*mm))
                     
                     pr_id = pr['pr_info']['id']
                     pr_status = pr['pr_info'].get('status', 'open')
@@ -586,10 +597,6 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                         for commit in pr['pr_info']['commits']:
                             commit_text = wrap_text(f"- {commit['message']}")
                             elements.append(Paragraph(commit_text, styles['List']))
-                    
-                    # Разделитель между PR
-                    elements.append(Spacer(1, 5*mm))
-                    elements.append(HorizontalLine(450, colors.lightgrey, 1))
         else:
             # Эта часть кода не будет выполняться, так как мы уже отфильтровали отчеты с ошибками выше
             elements.append(Paragraph("Данные анализа не найдены", styles['Heading1']))
