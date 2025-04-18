@@ -8,6 +8,15 @@ import re
 import time
 from dotenv import load_dotenv
 
+try:
+    from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+except ImportError:
+    print("Warning: tenacity library not installed. Falling back to basic retry logic.")
+    retry = lambda *args, **kwargs: lambda x: x  # Заглушка для декоратора
+    stop_after_attempt = lambda x: None
+    wait_fixed = lambda x: None
+    retry_if_exception_type = lambda x: None
+
 # Загружаем переменные окружения из файла .env
 load_dotenv()
 
@@ -25,18 +34,24 @@ class GitHubParser:
         if token:
             self.headers["Authorization"] = f"token {token}"
 
-
-    def get_pr_list(self, owner, repo, state="open"):
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(5),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)),
+        reraise=True
+    )
+    def get_pr_list(self, owner, repo, state="open", author_login=None):
         """
-        Получение полного списка pull request'ов из репозитория с поддержкой пагинации.
+        Получение списка pull request'ов из репозитория с поддержкой пагинации и фильтрации по автору.
         
         Args:
             owner (str): Владелец репозитория.
             repo (str): Название репозитория.
             state (str, optional): Состояние PR (open/closed/all). По умолчанию "open".
+            author_login (str, optional): Логин автора PR для фильтрации. По умолчанию None (все авторы).
             
         Returns:
-            list: Полный список pull request'ов.
+            list: Список pull request'ов.
             
         Raises:
             requests.exceptions.HTTPError: Если произошла ошибка HTTP.
@@ -47,13 +62,27 @@ class GitHubParser:
             page = 1
             per_page = 100  # Максимальное количество результатов на странице
             
-            while True:
+            if author_login:
+                # Используем Search API для фильтрации по автору
+                query = f"type:pr repo:{owner}/{repo} author:{author_login}"
+                if state != "all":
+                    query += f" state:{state}"
+                url = f"https://api.github.com/search/issues?q={query}&page={page}&per_page={per_page}"
+            else:
+                # Стандартный запрос для получения всех PR
                 url = f"https://api.github.com/repos/{owner}/{repo}/pulls?state={state}&page={page}&per_page={per_page}"
-                print(f"Запрашиваем PR: страница {page}, {owner}/{repo}, состояние: {state}")
+
+            while True:
+                print(f"Запрашиваем PR: страница {page}, {owner}/{repo}, состояние: {state}" + (f", автор: {author_login}" if author_login else ""))
                 response = requests.get(url, headers=self.headers)
                 response.raise_for_status()
                 
-                page_results = response.json()
+                if author_login:
+                    # Для Search API данные находятся в поле "items"
+                    page_results = response.json().get("items", [])
+                else:
+                    page_results = response.json()
+                    
                 if not page_results:  # Если страница пустая, значит PR больше нет
                     break
                     
@@ -65,6 +94,13 @@ class GitHubParser:
                     break
                     
                 page += 1
+                # Обновляем URL для следующей страницы
+                if author_login:
+                    url = f"https://api.github.com/search/issues?q={query}&page={page}&per_page={per_page}"
+                else:
+                    url = f"https://api.github.com/repos/{owner}/{repo}/pulls?state={state}&page={page}&per_page={per_page}"
+                
+                time.sleep(1)  # Задержка для избежания лимитов API
                 
             return all_prs
         except requests.exceptions.HTTPError as e:
@@ -79,7 +115,12 @@ class GitHubParser:
             print(f"Ошибка при получении списка PR: {e}")
             raise e
 
-
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(5),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)),
+        reraise=True
+    )
     def get_pr_diff(self, owner, repo, pr_number):
         """
         Получение diff-файла для конкретного pull request'а.
@@ -111,7 +152,6 @@ class GitHubParser:
             print(f"Error fetching PR diff #{pr_number}: {e}")
             raise e
 
-
     def format_code_from_diff(self, diff):
         """
         Извлечение кода из diff-файла.
@@ -133,9 +173,14 @@ class GitHubParser:
                 code.append(line)
         return "\n".join(code)
 
-
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(5),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.HTTPError)),
+        reraise=True
+    )
     def get_pr_commits(self, owner, repo, pr_number):
-        """Получает информацию о коммитах PR"""
+        """Получает информацию о коммитах PR с повторными попытками при сетевых ошибках."""
         try:
             url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/commits"
             response = requests.get(url, headers=self.headers)
@@ -147,7 +192,6 @@ class GitHubParser:
         except Exception as e:
             print(f"Error fetching commits for PR #{pr_number}: {e}")
             return []
-
 
     def parse_prs(self, owner, repo, start_date=None, end_date=None, author_login=None, save_to="pr_data.json"):
         """
@@ -165,7 +209,6 @@ class GitHubParser:
         Returns:
             list: Список словарей с данными о pull request'ах.
         """
-        
         # Создаем директорию для анализов если её нет
         analysis_dir = os.path.join(os.path.dirname(__file__), "pr_files")
         os.makedirs(analysis_dir, exist_ok=True)
@@ -189,24 +232,27 @@ class GitHubParser:
                 print(f"Неверный формат конечной даты: {end_date}. Используйте формат YYYY-MM-DD.")
         
         # Получаем все PR (включая открытые, закрытые и объединенные)
-        pr_list = self.get_pr_list(owner, repo, state="all")
+        pr_list = self.get_pr_list(owner, repo, state="all", author_login=author_login)
+        
+        if not pr_list:
+            print(f"Предупреждение: PR не найдены для репозитория {owner}/{repo}" + (f" с автором {author_login}" if author_login else ""))
+            return []
+        
         parsed_data = []
 
-        # Если указан автор, фильтруем PR по логину автора перед их обработкой
-        if author_login:
-            pr_list = [pr for pr in pr_list if pr["user"]["login"].lower() == author_login.lower()]
-            if not pr_list:
-                print(f"Предупреждение: PR с логином {author_login} не найдены для репозитория {owner}/{repo}")
-                return []
-
         for pr in pr_list:
+            pr_number = pr["number"]
+            print(f"Обработка PR #{pr_number} от {pr['created_at']} (автор: {pr['user']['login']})")
+            
             # Проверяем, соответствует ли PR заданному периоду времени
             pr_created_at = datetime.strptime(pr["created_at"], "%Y-%m-%dT%H:%M:%SZ")
             
             # Фильтрация по дате
             if start_datetime and pr_created_at < start_datetime:
+                print(f"PR #{pr_number} пропущен: дата создания ({pr_created_at}) раньше {start_datetime}")
                 continue
             if end_datetime and pr_created_at > end_datetime:
+                print(f"PR #{pr_number} пропущен: дата создания ({pr_created_at}) позже {end_datetime}")
                 continue
             
             # Определяем статус PR
@@ -216,8 +262,7 @@ class GitHubParser:
                     pr_status = "merged"
                 else:
                     pr_status = "rejected"  # PR был закрыт, но не объединен - отклонен
-                
-            pr_number = pr["number"]
+            
             try:
                 diff = self.get_pr_diff(owner, repo, pr_number)
                 code = self.format_code_from_diff(diff)
@@ -237,22 +282,21 @@ class GitHubParser:
                     "id_pr": pr_number,
                     "link": pr["html_url"],
                     "created_at": datetime.strptime(pr["created_at"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d %H:%M:%S"),
-                    "status": pr_status,  # Добавляем статус PR (open/merged/rejected)
+                    "status": pr_status,
                     "closed_at": datetime.strptime(pr["closed_at"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d %H:%M:%S") if pr.get("closed_at") else None,
                     "merged_at": datetime.strptime(pr["merged_at"], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%d %H:%M:%S") if pr.get("merged_at") else None,
                     "commits": self.get_pr_commits(owner, repo, pr_number)
                 }
                 parsed_data.append(data)
+                print(f"PR #{pr_number} успешно обработан")
             except Exception as e:
-                print(f"Error processing PR #{pr_number}: {e}")
+                print(f"Ошибка обработки PR #{pr_number}: {e}")
                 continue
 
         return parsed_data
 
-
     def parse_mrs(self, owner, repo, save_to="mr_data.json"):
         return self._parse(owner, repo, "closed", save_to, merged_only=True)
-
 
     def _parse(self, owner, repo, state, save_to, merged_only=False):
         """
@@ -294,7 +338,6 @@ class GitHubParser:
         # self.save_to_json(parsed_data, save_to)
         return parsed_data
 
-
     def save_to_json(self, data, filename):
         """
         Сохранение данных в JSON-файл.
@@ -313,7 +356,6 @@ class GitHubParser:
         except Exception as e:
             print(f"Error saving to JSON: {e}")
             raise e
-
 
     def analyze_all_prs(self, repo_links, start_date=None, end_date=None, author_login=None, save_to="analysis_report.json"):
         """
@@ -495,13 +537,8 @@ class GitHubParser:
         analysis_dir = os.path.join(base_dir, "pr_files")
         os.makedirs(analysis_dir, exist_ok=True)
         
-        # Ограничиваем количество PR для анализа, если их слишком много
-        max_prs_per_batch = 5
-        if len(prs_analysis_data) > max_prs_per_batch:
-            print(f"Слишком много PR для одного запроса ({len(prs_analysis_data)}), анализируем первые {max_prs_per_batch}")
-            analysis_batch = prs_analysis_data[:max_prs_per_batch]
-        else:
-            analysis_batch = prs_analysis_data
+        # Обрабатываем все PR без ограничения по количеству
+        analysis_batch = prs_analysis_data
         
         # Сохраняем пример запроса в файл в папке pr_files
         prompt = instruction + "\n" + json.dumps(analysis_batch, ensure_ascii=False, indent=2)
@@ -543,7 +580,8 @@ class GitHubParser:
 
 def main():
     parser = GitHubParser()
-    results = parser.analyze_all_prs(["https://github.com/microsoft/vscode-extension-samples"], start_date=None, end_date=None, author_login="mrljtster", save_to="analysis_report.json")
+    results = parser.analyze_all_prs(["https://github.com/microsoft/vscode-docs"], start_date=None, end_date=None, author_login="mrljtster", save_to="analysis_report.json")
+    print(f"Получено PR: {len(results)}")
 
 if __name__ == "__main__":
     main()
