@@ -14,15 +14,19 @@
             placeholder="https://github.com/owner/repo"
             class="form-control"
             @keyup.enter="addRepoLink"
+            :class="{ 'input-error': errors.repoLink }"
           >
           <button @click="addRepoLink" class="add-repo-btn">Добавить</button>
         </div>
+        <div class="error-message" v-if="errors.repoLink">{{ errors.repoLink }}</div>
+        <div class="error-message" v-if="errors.repoLinksCount">{{ errors.repoLinksCount }}</div>
         <div class="repo-links-list" v-if="reportForm.repoLinks.length > 0">
           <div v-for="(link, index) in reportForm.repoLinks" :key="index" class="repo-link-item">
             <span>{{ link }}</span>
             <button @click="removeRepoLink(index)" class="remove-link-btn">×</button>
           </div>
         </div>
+        <div class="error-message" v-if="errors.repoLinksEmpty">{{ errors.repoLinksEmpty }}</div>
       </div>
       
       <div class="form-group">
@@ -33,7 +37,9 @@
           v-model="reportForm.login" 
           placeholder="Введите логин пользователя"
           class="form-control"
+          :class="{ 'input-error': errors.login }"
         >
+        <div class="error-message" v-if="errors.login">{{ errors.login }}</div>
       </div>
       
       <div class="form-row">
@@ -44,7 +50,9 @@
             id="startDate" 
             v-model="reportForm.startDate"
             class="form-control"
+            :class="{ 'input-error': errors.startDate || errors.dateRange }"
           >
+          <div class="error-message" v-if="errors.startDate">{{ errors.startDate }}</div>
         </div>
         
         <div class="form-group date-group">
@@ -54,9 +62,12 @@
             id="endDate" 
             v-model="reportForm.endDate"
             class="form-control"
+            :class="{ 'input-error': errors.endDate || errors.dateRange }"
           >
+          <div class="error-message" v-if="errors.endDate">{{ errors.endDate }}</div>
         </div>
       </div>
+      <div class="error-message" v-if="errors.dateRange">{{ errors.dateRange }}</div>
       
       <button @click="generateReport" class="generate-btn" :disabled="loading">
         {{ loading ? 'Формирование...' : 'Сформировать отчет' }}
@@ -111,23 +122,110 @@ export default {
       newRepoLink: '',
       reports: [],
       loading: false,
-      error: null
+      error: null,
+      errors: {
+        repoLink: null,
+        repoLinksCount: null,
+        repoLinksEmpty: null,
+        login: null,
+        startDate: null,
+        endDate: null,
+        dateRange: null
+      }
     };
   },
   mounted() {
     this.fetchReports();
   },
   methods: {
-    addRepoLink() {
-      if (this.newRepoLink && this.newRepoLink.trim()) {
-        if (!this.reportForm.repoLinks.includes(this.newRepoLink.trim())) {
-          this.reportForm.repoLinks.push(this.newRepoLink.trim());
-        }
-        this.newRepoLink = '';
-      }
+    clearErrors() {
+      this.errors = {
+        repoLink: null,
+        repoLinksCount: null,
+        repoLinksEmpty: null,
+        login: null,
+        startDate: null,
+        endDate: null,
+        dateRange: null
+      };
     },
+    
+    validateGithubUrl(url) {
+      const githubRegex = /^https:\/\/github\.com\/[\w-]+\/[\w.-]+\/?$/;
+      return githubRegex.test(url);
+    },
+    
+    addRepoLink() {
+      this.errors.repoLink = null;
+      this.errors.repoLinksCount = null;
+      
+      if (!this.newRepoLink || !this.newRepoLink.trim()) {
+        this.errors.repoLink = 'Ссылка на репозиторий не может быть пустой';
+        return;
+      }
+      
+      const trimmedLink = this.newRepoLink.trim();
+      
+      if (!this.validateGithubUrl(trimmedLink)) {
+        this.errors.repoLink = 'Неверный формат ссылки. Используйте формат: https://github.com/owner/repo';
+        return;
+      }
+      
+      if (this.reportForm.repoLinks.includes(trimmedLink)) {
+        this.errors.repoLink = 'Такая ссылка уже добавлена';
+        return;
+      }
+      
+      if (this.reportForm.repoLinks.length >= 5) {
+        this.errors.repoLinksCount = 'Максимальное количество репозиториев: 5';
+        return;
+      }
+      
+      this.reportForm.repoLinks.push(trimmedLink);
+      this.newRepoLink = '';
+      this.errors.repoLinksEmpty = null;
+    },
+    
     removeRepoLink(index) {
       this.reportForm.repoLinks.splice(index, 1);
+      this.errors.repoLinksCount = null;
+    },
+    
+    validateForm() {
+      this.clearErrors();
+      let isValid = true;
+      
+      if (this.reportForm.repoLinks.length === 0) {
+        this.errors.repoLinksEmpty = 'Добавьте хотя бы одну ссылку на репозиторий';
+        isValid = false;
+      }
+      
+      if (!this.reportForm.login || !this.reportForm.login.trim()) {
+        this.errors.login = 'Введите логин пользователя';
+        isValid = false;
+      }
+      
+      if (!this.reportForm.startDate) {
+        this.errors.startDate = 'Укажите дату начала';
+        isValid = false;
+      }
+      
+      if (!this.reportForm.endDate) {
+        this.errors.endDate = 'Укажите дату окончания';
+        isValid = false;
+      }
+      
+      if (this.reportForm.startDate && this.reportForm.endDate) {
+        const startDate = new Date(this.reportForm.startDate);
+        const endDate = new Date(this.reportForm.endDate);
+        
+        if (startDate > endDate) {
+          this.errors.dateRange = 'Дата начала не может быть больше даты окончания';
+          isValid = false;
+        }
+      }
+      
+      return isValid;
     },
     
     async fetchReports() {
@@ -146,8 +244,7 @@ export default {
     },
     
     async generateReport() {
-      if (!this.reportForm.login || !this.reportForm.startDate || !this.reportForm.endDate || this.reportForm.repoLinks.length === 0) {
-        alert('Пожалуйста, заполните все поля формы и добавьте хотя бы одну ссылку на репозиторий');
+      if (!this.validateForm()) {
         return;
       }
       
@@ -155,13 +252,10 @@ export default {
       this.error = null;
       
       try {
-        // Сообщаем пользователю о начале формирования отчета
         alert('Начат процесс формирования отчета. Это может занять некоторое время. Отчет автоматически появится в списке и будет доступен для скачивания.');
         
-        // Сохраняем введенный логин для использования в обратном вызове
         const login = this.reportForm.login;
         
-        // Отправляем запрос на начало формирования отчета
         const response = await axios.post('/api/reports/generate', {
           email: this.reportForm.login,
           login: this.reportForm.login,
@@ -170,10 +264,8 @@ export default {
           endDate: this.reportForm.endDate
         });
         
-        // Получаем ID процесса формирования отчета из ответа
         const processId = response.data.process_id;
         
-        // Очищаем форму
         this.reportForm = {
           login: '',
           repoLinks: [],
@@ -181,10 +273,10 @@ export default {
           endDate: ''
         };
         this.newRepoLink = '';
+        this.clearErrors();
         
         console.log(`Запрос на формирование отчета отправлен. ID процесса: ${processId}`);
         
-        // Начинаем периодически проверять статус формирования отчета
         const checkStatus = async () => {
           try {
             const statusResponse = await axios.get(`/api/reports/status/${processId}`);
@@ -193,23 +285,18 @@ export default {
             console.log(`Статус формирования отчета: ${status}, сообщение: ${message}`);
             
             if (status === 'completed' && report_id) {
-              // Отчет успешно сформирован
               this.loading = false;
               
-              // Обновляем список отчетов
               await this.fetchReports();
               
-              // Уведомляем пользователя
               alert(`Отчет для ${login} успешно сформирован и доступен для скачивания!`);
               return true;
             } else if (status === 'failed') {
-              // Формирование отчета завершилось с ошибкой
               this.loading = false;
               alert(`Не удалось сформировать отчет: ${message}`);
               return true;
             }
             
-            // Если процесс еще не завершен, продолжаем проверять
             return false;
           } catch (error) {
             console.error('Ошибка при проверке статуса отчета:', error);
@@ -217,22 +304,20 @@ export default {
           }
         };
         
-        // Периодически проверяем статус
         const interval = setInterval(async () => {
           const isDone = await checkStatus();
           if (isDone) {
             clearInterval(interval);
           }
-        }, 5000); // Проверяем каждые 5 секунд
+        }, 5000);
         
-        // Через 15 минут прекращаем проверки если отчет так и не сформировался
         setTimeout(() => {
           clearInterval(interval);
           if (this.loading) {
             this.loading = false;
             alert("Превышено время ожидания формирования отчета. Пожалуйста, проверьте список отчетов позже.");
           }
-        }, 15 * 60 * 1000); // 15 минут
+        }, 15 * 60 * 1000);
         
       } catch (error) {
         console.error('Ошибка при запросе на формирование отчета:', error);
@@ -262,10 +347,8 @@ export default {
           responseType: 'blob'
         });
         
-        // Создаем объект Blob из ответа
         const blob = new Blob([response.data], { type: 'application/pdf' });
         
-        // Создаем ссылку для скачивания
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -274,7 +357,6 @@ export default {
         document.body.appendChild(link);
         link.click();
         
-        // Очищаем
         window.URL.revokeObjectURL(url);
         link.remove();
       } catch (error) {
@@ -287,7 +369,6 @@ export default {
       if (!dateString) return '—';
       
       try {
-        // Преобразуем строку даты в объект Date
         const date = new Date(dateString);
         
         if (isNaN(date.getTime())) {
@@ -295,14 +376,10 @@ export default {
           return '—';
         }
         
-        // Добавляем смещение для московского времени (+3 часа от UTC)
-        // Сначала получаем timestamp в миллисекундах
         const utcTime = date.getTime();
         
-        // Создаем новую дату с поправкой на московское время (+3 часа)
         const mskTime = new Date(utcTime);
         
-        // Форматируем дату с использованием локали ru-RU
         const formattedDate = new Intl.DateTimeFormat('ru-RU', {
           day: '2-digit',
           month: '2-digit',
@@ -311,7 +388,6 @@ export default {
           minute: '2-digit'
         }).format(mskTime);
         
-        // Добавляем метку МСК для понятности
         return `${formattedDate} (МСК)`;
       } catch (error) {
         console.error('Ошибка форматирования даты:', error, dateString);
@@ -357,13 +433,13 @@ h3 {
   display: flex;
   gap: 20px;
   margin-bottom: 20px;
-  flex-wrap: wrap; /* Добавляем перенос элементов, если не хватает места */
+  flex-wrap: wrap;
 }
 
 .date-group {
   flex: 1;
-  min-width: 140px; /* Устанавливаем минимальную ширину */
-  max-width: calc(50% - 10px); /* Ограничиваем максимальную ширину */
+  min-width: 140px;
+  max-width: calc(50% - 10px);
 }
 
 label {
@@ -379,7 +455,7 @@ label {
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
-  box-sizing: border-box; /* Учитываем отступы в общей ширине */
+  box-sizing: border-box;
 }
 
 .generate-btn {
@@ -512,5 +588,17 @@ label {
 
 .remove-link-btn:hover {
   background-color: #d32f2f;
+}
+
+.error-message {
+  color: #f44336;
+  font-size: 12px;
+  margin-top: 4px;
+  margin-left: 2px;
+  text-align: left;
+}
+
+.input-error {
+  border-color: #f44336 !important;
 }
 </style>
