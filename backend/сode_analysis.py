@@ -63,7 +63,7 @@ def send_request_to_api(prompt):
         return {"choices": [{"message": {"content": "{}"}}]}
 
     # Ограничиваем размер промпта, чтобы избежать превышения токенов (приблизительно)
-    max_prompt_chars = 20000  # Примерное ограничение на символы для безопасности
+    max_prompt_chars = 32000  # Примерное ограничение на символы для безопасности
     if len(prompt) > max_prompt_chars:
         print(f"Предупреждение: запрос слишком длинный ({len(prompt)} символов), сокращаем до {max_prompt_chars}")
         prompt = prompt[:max_prompt_chars] + "\n...[контент обрезан из-за превышения максимальной длины]"
