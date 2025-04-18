@@ -605,37 +605,6 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                         elements.append(Paragraph(explanation_text, styles['NormalText']))
                     
                     elements.append(Spacer(1, 3*mm))
-<<<<<<< HEAD
-                
-                # Антипаттерны
-                if pr.get("antipatterns"):
-                    elements.append(Paragraph("Антипаттерны:", styles['Heading2']))
-                    for pattern in pr["antipatterns"]:
-                        if isinstance(pattern, dict) and "name" in pattern:
-                            pattern_text = wrap_text(f"- {pattern['name']}")
-                        else:
-                            pattern_text = wrap_text(f"- {pattern}")
-                        elements.append(Paragraph(pattern_text, styles['List']))
-                    elements.append(Spacer(1, 3*mm))
-                
-                # Положительные моменты
-                if pr.get("positive_aspects"):
-                    elements.append(Paragraph("Положительные моменты:", styles['Heading2']))
-                    for pos in pr["positive_aspects"]:
-                        if isinstance(pos, dict) and "description" in pos:
-                            pos_text = wrap_text(f"- {pos['description']}")
-                        else:
-                            pos_text = wrap_text(f"- {pos}")
-                        elements.append(Paragraph(pos_text, styles['List']))
-                    elements.append(Spacer(1, 3*mm))
-                
-                # Коммиты
-               
-                
-                # Разделитель между PR
-                elements.append(Spacer(1, 5*mm))
-                elements.append(HorizontalLine(450, colors.lightgrey, 1))
-=======
                     
                     # Проблемы
                     if pr.get("issues"):
@@ -673,7 +642,6 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                         for commit in pr['pr_info']['commits']:
                             commit_text = wrap_text(f"- {commit['message']}")
                             elements.append(Paragraph(commit_text, styles['List']))
->>>>>>> 56c54ac22963f013e88f1319bc265c492d307d95
         else:
             # Эта часть кода не будет выполняться, так как мы уже отфильтровали отчеты с ошибками выше
             elements.append(Paragraph("Данные анализа не найдены", styles['Heading1']))
