@@ -442,16 +442,7 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
         except Exception as e:
             print(f"Ошибка при чтении файла анализа: {str(e)}")
             analysis_results = None
-        
-        # Добавляем логотип и титульную страницу
-        logo_path = os.path.join(os.path.dirname(__file__), "images", "logo.png")
-        if os.path.exists(logo_path):
-            # Добавляем логотип с центрированием
-            logo = Image(logo_path, width=300, height=100)
-            logo.hAlign = 'CENTER'
-            elements.append(logo)
-            elements.append(Spacer(1, 10*mm))
-        
+    
         elements.append(Paragraph(f"Отчет об оценке качества кода", styles['Title']))
         elements.append(Spacer(1, 10*mm))
         elements.append(Paragraph(f"<b>Логин пользователя:</b> {report_req.login}", styles['NormalText']))
@@ -487,12 +478,10 @@ async def generate_report_async(process_id: str, report_req: ReportRequest):
                 # Добавляем общую оценку сотрудника, если она есть
                 if "employee_rating" in общий_анализ:
                     employee_rating = общий_анализ["employee_rating"]
-                    emp_score = employee_rating.get("score", "Н/Д")
-                    elements.append(Paragraph(f"<b>Общая оценка сотрудника:</b> {emp_score}", styles['NormalText']))
                     
                     if "description" in employee_rating:
                         emp_desc = wrap_text(employee_rating["description"])
-                        elements.append(Paragraph(f"<b>Характеристика:</b> {emp_desc}", styles['NormalText']))
+                        elements.append(Paragraph(f"<b>Характеристика сотрудника:</b> {emp_desc}", styles['NormalText']))
                 
                 elements.append(Spacer(1, 5*mm))
                 
